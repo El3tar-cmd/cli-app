@@ -302,4 +302,40 @@ export const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_open',
+      description: 'Open a URL or local file in the default system browser. Use to preview dev servers, documentation pages, or any web content.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'URL to open (e.g., http://localhost:3000, https://docs.example.com)' },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'sequential_thinking',
+      description: 'A detailed tool for dynamic and reflective problem-solving through thoughts. Use this for complex planning and revisions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          thought: { type: 'string', description: 'Your current thinking step' },
+          thoughtNumber: { type: 'number', description: 'Current thought number' },
+          totalThoughts: { type: 'number', description: 'Estimated total thoughts needed' },
+          nextThoughtNeeded: { type: 'boolean', description: 'Whether another thought step is needed' },
+          isRevision: { type: 'boolean', description: 'Whether this revises previous thinking (optional)' },
+          revisesThought: { type: 'number', description: 'Which thought is being reconsidered (optional)' },
+          branchFromThought: { type: 'number', description: 'Branching point thought number (optional)' },
+          branchId: { type: 'string', description: 'Branch identifier (optional)' },
+          needsMoreThoughts: { type: 'boolean', description: 'If reaching end but realizing more thoughts needed (optional)' }
+        },
+        required: ['thought', 'thoughtNumber', 'totalThoughts', 'nextThoughtNeeded'],
+      },
+    },
+  },
 ];

@@ -258,4 +258,61 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
       return { success: true, output: info.join('\n') };
     },
   });
+
+  // ── browser_open ──────────────────────────────
+  registry.register({
+    name: 'browser_open',
+    description: 'Open a URL or local file in the default browser. Use this to preview websites, documentation, or local dev servers.',
+    category: 'web',
+    requiresConfirmation: false,
+    parameters: { url: 'string' },
+    handler: async (args): Promise<ToolResult> => {
+      const url = args.url as string;
+      try {
+        const platform = process.platform;
+        let cmd: string;
+        if (platform === 'win32') cmd = `start "" "${url}"`;
+        else if (platform === 'darwin') cmd = `open "${url}"`;
+        else cmd = `xdg-open "${url}"`;
+        execSync(cmd, { timeout: 5000 });
+        return { success: true, output: `✔ Opened browser: ${url}` };
+      } catch (err: any) {
+        return { success: false, output: '', error: `Failed to open browser: ${err.message}` };
+      }
+    },
+  });
+  // ── sequential_thinking ───────────────────────
+  const thoughtHistory: any[] = [];
+  registry.register({
+    name: 'sequential_thinking',
+    description: 'A detailed tool for dynamic and reflective problem-solving through thoughts. Use this for complex planning and revisions.',
+    category: 'system',
+    requiresConfirmation: false,
+    parameters: {
+      thought: 'string',
+      thoughtNumber: 'number',
+      totalThoughts: 'number',
+      nextThoughtNeeded: 'boolean',
+      isRevision: 'boolean?',
+      revisesThought: 'number?',
+      branchFromThought: 'number?',
+      branchId: 'string?',
+      needsMoreThoughts: 'boolean?'
+    },
+    handler: async (args): Promise<ToolResult> => {
+      thoughtHistory.push(args);
+      const isComplete = !args.nextThoughtNeeded;
+      
+      let summary = `Thought ${args.thoughtNumber}/${args.totalThoughts}`;
+      if (args.isRevision) summary += ` (Revising thought ${args.revisesThought})`;
+      if (args.branchFromThought) summary += ` (Branching from ${args.branchFromThought})`;
+      summary += `\n${args.thought}`;
+
+      if (isComplete) {
+        summary += '\n\n✔ Sequential thinking process completed.';
+      }
+
+      return { success: true, output: summary, metadata: { historyLength: thoughtHistory.length } };
+    },
+  });
 }

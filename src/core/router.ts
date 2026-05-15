@@ -74,6 +74,12 @@ export class CommandRouter {
         return this.cmdMode(['agent']);
       case 'code':
         return this.cmdMode(['code']);
+      case 'plan':
+        if (args.length === 0) {
+          return this.cmdMode(['plan']);
+        }
+        this.engine.setMode('plan');
+        return { handled: false };
       case 'context':
       case 'ctx':
         return this.cmdContext();

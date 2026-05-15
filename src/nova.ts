@@ -12,6 +12,7 @@ import { Engine, type NovaMode } from './core/engine.js';
 import { CommandRouter } from './core/router.js';
 import { ToolRegistry } from './tools/tool-registry.js';
 import { registerBuiltinTools } from './tools/built-in.js';
+import { registerBrowserTools } from './tools/browser.js';
 import { ConversationStore } from './memory/conversation-store.js';
 import { ProjectIndex } from './memory/project-index.js';
 import { KnowledgeBase } from './memory/knowledge-base.js';
@@ -59,6 +60,7 @@ export class Nova {
     this.config = new ConfigManager();
     this.tools = new ToolRegistry();
     registerBuiltinTools(this.tools, this.cwd);
+    registerBrowserTools(this.tools, this.cwd);
 
     this.engine = new Engine(this.config, this.tools);
     this.store = new ConversationStore();
