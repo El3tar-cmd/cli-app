@@ -312,16 +312,15 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
       thoughtHistory.push(args);
       const isComplete = !args.nextThoughtNeeded;
       
-      let summary = `Thought ${args.thoughtNumber}/${args.totalThoughts}`;
-      if (args.isRevision) summary += ` (Revising thought ${args.revisesThought})`;
-      if (args.branchFromThought) summary += ` (Branching from ${args.branchFromThought})`;
-      summary += `\n${args.thought}`;
+      const output = {
+        thoughtNumber: args.thoughtNumber,
+        totalThoughts: args.totalThoughts,
+        nextThoughtNeeded: args.nextThoughtNeeded,
+        branches: args.branchFromThought ? [args.branchId || 'unknown'] : [],
+        thoughtHistoryLength: thoughtHistory.length
+      };
 
-      if (isComplete) {
-        summary += '\n\n✔ Sequential thinking process completed.';
-      }
-
-      return { success: true, output: summary, metadata: { historyLength: thoughtHistory.length } };
+      return { success: true, output: JSON.stringify(output, null, 2), metadata: { historyLength: thoughtHistory.length } };
     },
   });
 }
