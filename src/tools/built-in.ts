@@ -290,37 +290,4 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
       }
     },
   });
-  // ── sequential_thinking ───────────────────────
-  const thoughtHistory: any[] = [];
-  registry.register({
-    name: 'sequential_thinking',
-    description: 'A detailed tool for dynamic and reflective problem-solving through thoughts. Use this for complex planning and revisions.',
-    category: 'system',
-    requiresConfirmation: false,
-    parameters: {
-      thought: 'string',
-      thoughtNumber: 'number',
-      totalThoughts: 'number',
-      nextThoughtNeeded: 'boolean',
-      isRevision: 'boolean?',
-      revisesThought: 'number?',
-      branchFromThought: 'number?',
-      branchId: 'string?',
-      needsMoreThoughts: 'boolean?'
-    },
-    handler: async (args): Promise<ToolResult> => {
-      thoughtHistory.push(args);
-      const isComplete = !args.nextThoughtNeeded;
-      
-      const output = {
-        thoughtNumber: args.thoughtNumber,
-        totalThoughts: args.totalThoughts,
-        nextThoughtNeeded: args.nextThoughtNeeded,
-        branches: args.branchFromThought ? [args.branchId || 'unknown'] : [],
-        thoughtHistoryLength: thoughtHistory.length
-      };
-
-      return { success: true, output: JSON.stringify(output, null, 2), metadata: { historyLength: thoughtHistory.length } };
-    },
-  });
 }

@@ -177,8 +177,12 @@ export class Engine {
         fullResponse += iterResponse;
 
         // Add assistant response to context
-        if (iterResponse) {
-          this.context.addMessage({ role: 'assistant', content: iterResponse });
+        if (iterResponse || toolCalls.length > 0) {
+          this.context.addMessage({ 
+            role: 'assistant', 
+            content: iterResponse,
+            tool_calls: toolCalls.length > 0 ? toolCalls : undefined
+          });
         }
 
         // If no tool calls, we're done
@@ -196,7 +200,7 @@ export class Engine {
         for (const tr of toolResults) {
           this.context.addMessage({
             role: 'tool',
-            content: JSON.stringify({ tool: tr.name, result: tr.output }),
+            content: tr.output,
           });
         }
 

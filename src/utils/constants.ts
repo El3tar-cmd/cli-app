@@ -316,26 +316,4 @@ export const TOOL_DEFINITIONS = [
       },
     },
   },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'sequential_thinking',
-      description: 'A detailed tool for dynamic and reflective problem-solving through thoughts. Use this for complex planning and revisions.',
-      parameters: {
-        type: 'object',
-        properties: {
-          thought: { type: 'string', description: 'Your current thinking step' },
-          thoughtNumber: { type: 'number', description: 'Current thought number' },
-          totalThoughts: { type: 'number', description: 'Estimated total thoughts needed' },
-          nextThoughtNeeded: { type: 'boolean', description: 'Whether another thought step is needed' },
-          isRevision: { type: 'boolean', description: 'Whether this revises previous thinking (optional)' },
-          revisesThought: { type: 'number', description: 'Which thought is being reconsidered (optional)' },
-          branchFromThought: { type: 'number', description: 'Branching point thought number (optional)' },
-          branchId: { type: 'string', description: 'Branch identifier (optional)' },
-          needsMoreThoughts: { type: 'boolean', description: 'If reaching end but realizing more thoughts needed (optional)' }
-        },
-        required: ['thought', 'thoughtNumber', 'totalThoughts', 'nextThoughtNeeded'],
-      },
-    },
-  },
 ];
