@@ -317,7 +317,6 @@ export class Nova {
       if (input === '/') {
         this.rl.pause();
         const picker = new CommandPicker(CommandPicker.getNovaCommands());
-        process.stdout.write('\n'.repeat(15));
         const selected = await picker.show();
         this.rl.resume();
         if (selected) {

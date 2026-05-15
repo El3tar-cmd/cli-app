@@ -1,9 +1,10 @@
 /**
  * 🎯 NOVA Command Picker — Interactive arrow-key command selector
+ * Uses absolute cursor positioning for clean rendering
  */
 
 import chalk from 'chalk';
-import { getTheme, ICONS, gradient } from './theme.js';
+import { getTheme, ICONS } from './theme.js';
 
 export interface PickerItem {
   label: string;
@@ -17,15 +18,13 @@ export class CommandPicker {
   private selectedIndex = 0;
   private filteredItems: PickerItem[];
   private filter = '';
-  private onSelect: (value: string) => void;
-  private onCancel: () => void;
   private active = false;
+  private linesRendered = 0;
+  private firstRender = true;
 
   constructor(items: PickerItem[]) {
     this.items = items;
     this.filteredItems = items;
-    this.onSelect = () => {};
-    this.onCancel = () => {};
   }
 
   /** Show the picker and return selected command */
@@ -35,21 +34,11 @@ export class CommandPicker {
       this.selectedIndex = 0;
       this.filter = '';
       this.filteredItems = this.items;
-
-      this.onSelect = (value: string) => {
-        this.active = false;
-        this.cleanup();
-        resolve(value);
-      };
-
-      this.onCancel = () => {
-        this.active = false;
-        this.cleanup();
-        resolve(null);
-      };
+      this.linesRendered = 0;
+      this.firstRender = true;
 
       this.render();
-      this.startListening();
+      this.startListening(resolve);
     });
   }
 
@@ -57,57 +46,64 @@ export class CommandPicker {
   private render(): void {
     const theme = getTheme();
     const maxVisible = Math.min(this.filteredItems.length, 12);
-    
-    // Calculate scroll window
-    const startIdx = Math.max(0, this.selectedIndex - Math.floor(maxVisible / 2));
-    const endIdx = Math.min(this.filteredItems.length, startIdx + maxVisible);
 
-    // Clear previous render
-    if (this.filteredItems.length > 0) {
-      // Move up to clear old lines (header + items + footer = maxVisible + 2)
-      process.stdout.write(`\x1B[${maxVisible + 3}A\x1B[0J`);
+    // Calculate scroll window
+    let startIdx = Math.max(0, this.selectedIndex - Math.floor(maxVisible / 2));
+    const endIdx = Math.min(this.filteredItems.length, startIdx + maxVisible);
+    startIdx = Math.max(0, endIdx - maxVisible);
+
+    // Clear previous render (move cursor up and clear)
+    if (!this.firstRender && this.linesRendered > 0) {
+      process.stdout.write(`\x1B[${this.linesRendered}A`); // move up
+      process.stdout.write('\x1B[0J'); // clear from cursor to end of screen
     }
+    this.firstRender = false;
+
+    const lines: string[] = [];
 
     // Header
-    const filterText = this.filter 
+    const filterText = this.filter
       ? chalk.hex(theme.primary)(` filter: ${this.filter}`)
       : chalk.hex(theme.muted)(' ↑↓ navigate • enter select • esc cancel');
-    process.stdout.write(chalk.hex(theme.border)('  ┌─ Commands ') + filterText + '\n');
+    lines.push(chalk.hex(theme.border)('  ┌─ Commands') + filterText);
 
     // Items
     for (let i = startIdx; i < endIdx; i++) {
       const item = this.filteredItems[i];
       const isSelected = i === this.selectedIndex;
       const prefix = isSelected ? chalk.hex(theme.primary)('  │ ▸ ') : chalk.hex(theme.border)('  │   ');
-      const icon = item.icon || ICONS.arrowRight;
-      
+
       if (isSelected) {
-        process.stdout.write(
+        lines.push(
           prefix +
           chalk.hex(theme.primary).bold(`/${item.value}`.padEnd(18)) +
-          chalk.hex(theme.text)(item.description) + '\n'
+          chalk.hex(theme.text)(item.description)
         );
       } else {
-        process.stdout.write(
+        lines.push(
           prefix +
           chalk.hex(theme.textDim)(`/${item.value}`.padEnd(18)) +
-          chalk.hex(theme.muted)(item.description) + '\n'
+          chalk.hex(theme.muted)(item.description)
         );
       }
     }
 
-    // Scroll indicator
-    const hasMore = this.filteredItems.length > maxVisible;
-    const scrollInfo = hasMore 
+    // Footer with scroll indicator
+    const scrollInfo = this.filteredItems.length > maxVisible
       ? chalk.hex(theme.muted)(` ${this.selectedIndex + 1}/${this.filteredItems.length}`)
       : '';
-    process.stdout.write(chalk.hex(theme.border)('  └─────────') + scrollInfo + '\n');
+    lines.push(chalk.hex(theme.border)('  └─────────') + scrollInfo);
+
+    // Write all lines
+    const output = lines.join('\n') + '\n';
+    process.stdout.write(output);
+    this.linesRendered = lines.length;
   }
 
   /** Start listening for keypresses */
-  private startListening(): void {
+  private startListening(resolve: (value: string | null) => void): void {
     if (!process.stdin.isTTY) {
-      this.onCancel();
+      resolve(null);
       return;
     }
 
@@ -115,32 +111,41 @@ export class CommandPicker {
     process.stdin.setRawMode(true);
     process.stdin.resume();
 
-    const handler = (data: Buffer) => {
-      if (!this.active) {
-        process.stdin.removeListener('data', handler);
-        return;
+    const done = (result: string | null) => {
+      this.active = false;
+      process.stdin.removeListener('data', handler);
+      if (wasRaw !== undefined && wasRaw !== null) {
+        process.stdin.setRawMode(wasRaw);
+      } else {
+        process.stdin.setRawMode(false);
       }
+      // Clear the picker display
+      if (this.linesRendered > 0) {
+        process.stdout.write(`\x1B[${this.linesRendered}A`);
+        process.stdout.write('\x1B[0J');
+      }
+      resolve(result);
+    };
+
+    const handler = (data: Buffer) => {
+      if (!this.active) return;
 
       const key = data.toString();
 
-      // Escape — cancel
-      if (key === '\x1B' || key === '\x03') {
-        process.stdin.removeListener('data', handler);
-        if (wasRaw !== undefined) process.stdin.setRawMode(wasRaw);
-        this.onCancel();
+      // Escape or Ctrl+C — cancel
+      if (key === '\x1B' && data.length === 1) {
+        done(null);
+        return;
+      }
+      if (key === '\x03') {
+        done(null);
         return;
       }
 
       // Enter — select
       if (key === '\r' || key === '\n') {
-        process.stdin.removeListener('data', handler);
-        if (wasRaw !== undefined) process.stdin.setRawMode(wasRaw);
         const selected = this.filteredItems[this.selectedIndex];
-        if (selected) {
-          this.onSelect('/' + selected.value);
-        } else {
-          this.onCancel();
-        }
+        done(selected ? '/' + selected.value : null);
         return;
       }
 
@@ -168,6 +173,9 @@ export class CommandPicker {
         return;
       }
 
+      // Tab — ignore
+      if (key === '\t') return;
+
       // Printable characters — filter
       if (key.length === 1 && key >= ' ' && key <= '~') {
         this.filter += key;
@@ -184,20 +192,12 @@ export class CommandPicker {
   private applyFilter(): void {
     const q = this.filter.toLowerCase();
     this.filteredItems = q
-      ? this.items.filter(i => 
-          i.value.toLowerCase().includes(q) || 
-          i.description.toLowerCase().includes(q) ||
-          i.label.toLowerCase().includes(q)
+      ? this.items.filter(i =>
+          i.value.toLowerCase().includes(q) ||
+          i.description.toLowerCase().includes(q)
         )
       : this.items;
     this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredItems.length - 1));
-  }
-
-  /** Cleanup terminal state */
-  private cleanup(): void {
-    // Clear the picker display
-    const maxVisible = Math.min(this.filteredItems.length, 12);
-    process.stdout.write(`\x1B[${maxVisible + 3}A\x1B[0J`);
   }
 
   /** Get default NOVA commands as picker items */
