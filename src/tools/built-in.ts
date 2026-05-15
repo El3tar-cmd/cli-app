@@ -7,6 +7,15 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { ToolRegistry, type ToolResult } from './tool-registry.js';
 
+function sanitizePath(p: string): string {
+  if (!p) return '';
+  let clean = p.replace(/^[\\/]+workspace[\\/]+/, '');
+  if (clean.startsWith('/') && process.platform === 'win32') {
+    clean = clean.replace(/^\/+/, '');
+  }
+  return clean;
+}
+
 export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void {
   // ── file_read ────────────────────────────────
   registry.register({
@@ -16,7 +25,7 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
     requiresConfirmation: false,
     parameters: { path: 'string', startLine: 'number?', endLine: 'number?' },
     handler: async (args): Promise<ToolResult> => {
-      const filePath = resolve(cwd, args.path as string);
+      const filePath = resolve(cwd, sanitizePath(args.path as string));
       if (!existsSync(filePath)) return { success: false, output: '', error: `File not found: ${filePath}` };
       try {
         const content = readFileSync(filePath, 'utf-8');
@@ -40,7 +49,7 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
     requiresConfirmation: true,
     parameters: { path: 'string', content: 'string' },
     handler: async (args): Promise<ToolResult> => {
-      const filePath = resolve(cwd, args.path as string);
+      const filePath = resolve(cwd, sanitizePath(args.path as string));
       try {
         const dir = dirname(filePath);
         if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -61,7 +70,7 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
     requiresConfirmation: true,
     parameters: { path: 'string', search: 'string', replace: 'string' },
     handler: async (args): Promise<ToolResult> => {
-      const filePath = resolve(cwd, args.path as string);
+      const filePath = resolve(cwd, sanitizePath(args.path as string));
       if (!existsSync(filePath)) return { success: false, output: '', error: `File not found: ${filePath}` };
       try {
         let content = readFileSync(filePath, 'utf-8');
@@ -84,7 +93,7 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
     requiresConfirmation: true,
     parameters: { command: 'string', cwd: 'string?', timeout: 'number?' },
     handler: async (args): Promise<ToolResult> => {
-      const workDir = args.cwd ? resolve(cwd, args.cwd as string) : cwd;
+      const workDir = args.cwd ? resolve(cwd, sanitizePath(args.cwd as string)) : cwd;
       const timeout = (args.timeout as number) || 30000;
       try {
         const output = execSync(args.command as string, {
@@ -111,7 +120,7 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
     requiresConfirmation: false,
     parameters: { pattern: 'string', path: 'string?', includes: 'string?' },
     handler: async (args): Promise<ToolResult> => {
-      const searchPath = args.path ? resolve(cwd, args.path as string) : cwd;
+      const searchPath = args.path ? resolve(cwd, sanitizePath(args.path as string)) : cwd;
       const pattern = args.pattern as string;
       const includes = args.includes as string || '';
       try {
@@ -144,7 +153,7 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
     requiresConfirmation: false,
     parameters: { path: 'string', recursive: 'boolean?' },
     handler: async (args): Promise<ToolResult> => {
-      const dirPath = resolve(cwd, (args.path as string) || '.');
+      const dirPath = resolve(cwd, sanitizePath((args.path as string) || '.'));
       if (!existsSync(dirPath)) return { success: false, output: '', error: `Directory not found: ${dirPath}` };
       try {
         const entries = readdirSync(dirPath, { withFileTypes: true });

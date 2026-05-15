@@ -111,6 +111,9 @@ export class CommandRouter {
         return await this.cmdSecurity(args);
       case 'init':
         return await this.cmdInit();
+      case 'edit':
+      case 'e':
+        return await this.cmdEdit();
       default:
         process.stdout.write(chalk.hex(theme.error)(`  ${ICONS.error} Unknown command: /${cmd}\n`));
         process.stdout.write(chalk.hex(theme.muted)(`  Type /help for available commands\n`));
@@ -145,6 +148,8 @@ export class CommandRouter {
         ['/tools', 'List available tools'],
         ['/status', 'System status dashboard'],
         ['/project', 'Analyze current project'],
+        ['/init', 'Create NOVA.md config for this project'],
+        ['/edit, /e', 'Open editor for long/Arabic text input'],
         ['/config <key> [value]', 'View/set configuration'],
         ['/theme <name>', 'Switch theme'],
       ]},
@@ -564,5 +569,51 @@ Add any extra context NOVA should know about your project.
     process.stdout.write(chalk.hex(t.success)(`  ${ICONS.success} Created NOVA.md in ${this.cwd}\n`));
     process.stdout.write(chalk.hex(t.muted)(`  Edit it to customize NOVA's behavior for this project\n`));
     return { handled: true };
+  }
+
+  private async cmdEdit(): Promise<CommandResult> {
+    const t = getTheme();
+    const tmpDir = join(this.cwd, '.nova-tmp');
+    if (!existsSync(tmpDir)) {
+      const { mkdirSync } = await import('node:fs');
+      mkdirSync(tmpDir, { recursive: true });
+    }
+    const tmpFile = join(tmpDir, `input-${Date.now()}.md`);
+
+    // Create template file with RTL hint
+    writeFileSync(tmpFile, `<!-- اكتب رسالتك هنا - Write your message here -->\n<!-- احفظ الملف واغلقه لإرسال الرسالة - Save and close to send -->\n\n`, 'utf-8');
+
+    process.stdout.write(chalk.hex(t.accent)(`\n  ${ICONS.sparkle} Opening editor...\n`));
+    process.stdout.write(chalk.hex(t.muted)(`  Write your message, save the file, then close it.\n`));
+
+    try {
+      // Try VS Code first, then fallback to notepad
+      try {
+        execSync(`code --wait "${tmpFile}"`, { stdio: 'inherit' });
+      } catch {
+        execSync(`notepad "${tmpFile}"`, { stdio: 'inherit' });
+      }
+
+      const content = readFileSync(tmpFile, 'utf-8')
+        .replace(/<!--.*?-->/g, '') // Remove HTML comments
+        .trim();
+
+      // Clean up
+      try { const { unlinkSync } = await import('node:fs'); unlinkSync(tmpFile); } catch {}
+
+      if (!content) {
+        process.stdout.write(chalk.hex(t.muted)(`  ${ICONS.info} Empty message — cancelled\n`));
+        return { handled: true };
+      }
+
+      process.stdout.write(chalk.hex(t.success)(`  ${ICONS.success} Message received (${content.length} chars)\n`));
+
+      // Process the message through the engine
+      await this.engine.processMessage(content);
+      return { handled: true };
+    } catch (err: any) {
+      process.stdout.write(chalk.hex(t.error)(`  ${ICONS.error} Editor failed: ${err.message}\n`));
+      return { handled: true };
+    }
   }
 }
