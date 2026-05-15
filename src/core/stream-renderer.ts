@@ -12,6 +12,7 @@ interface RenderState {
   codeBuffer: string;
   inBold: boolean;
   inItalic: boolean;
+  inThinking: boolean;
   lineBuffer: string;
   fullContent: string;
 }
@@ -32,6 +33,7 @@ export class StreamRenderer {
       codeBuffer: '',
       inBold: false,
       inItalic: false,
+      inThinking: false,
       lineBuffer: '',
       fullContent: '',
     };
@@ -81,6 +83,23 @@ export class StreamRenderer {
 
   private processLine(line: string): void {
     const theme = getTheme();
+
+    // Thinking block toggle
+    if (line.trim() === '<think>' || line.trim().startsWith('<think>')) {
+      this.state.inThinking = true;
+      this.output.write(chalk.hex(theme.muted).dim('  🧠 Thinking...'));
+      return;
+    }
+    if (line.trim() === '</think>' || line.trim().endsWith('</think>')) {
+      this.state.inThinking = false;
+      this.output.write(chalk.hex(theme.muted).dim('  ✔ Done thinking'));
+      return;
+    }
+    if (this.state.inThinking) {
+      // Render thinking lines dimmed/italic
+      this.output.write(chalk.hex(theme.muted).dim.italic('  │ ' + line));
+      return;
+    }
 
     // Code block toggle
     if (line.trimStart().startsWith('```')) {

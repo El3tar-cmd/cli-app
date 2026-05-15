@@ -42,6 +42,7 @@ export class Engine {
   private model: string;
   private stats: EngineStats;
   private confirmHandler: ((msg: string) => Promise<boolean>) | null = null;
+  private extraSystemPrompt: string = '';
 
   constructor(config: ConfigManager, tools: ToolRegistry) {
     this.config = config;
@@ -59,6 +60,11 @@ export class Engine {
       totalToolCalls: 0,
       sessionStart: Date.now(),
     };
+  }
+
+  /** Set extra system prompt content (e.g., from NOVA.md) */
+  setExtraSystemPrompt(content: string): void {
+    this.extraSystemPrompt = content;
   }
 
   /** Set confirmation handler for tool calls */
@@ -94,7 +100,8 @@ export class Engine {
   /** Switch mode */
   setMode(mode: NovaMode): void {
     this.mode = mode;
-    this.context.setSystemPrompt(MODE_PROMPTS[mode]);
+    const basePrompt = MODE_PROMPTS[mode];
+    this.context.setSystemPrompt(basePrompt + this.extraSystemPrompt);
   }
 
   /** Get current mode */

@@ -5,7 +5,7 @@
 
 import * as readline from 'node:readline';
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import chalk from 'chalk';
 import { ConfigManager } from './core/config.js';
 import { Engine, type NovaMode } from './core/engine.js';
@@ -15,6 +15,7 @@ import { registerBuiltinTools } from './tools/built-in.js';
 import { ConversationStore } from './memory/conversation-store.js';
 import { ProjectIndex } from './memory/project-index.js';
 import { KnowledgeBase } from './memory/knowledge-base.js';
+import { NovaMdLoader } from './memory/nova-md.js';
 import { PluginManager } from './plugins/plugin-manager.js';
 import { CommandPicker } from './ui/command-picker.js';
 import { colors, gradient, getTheme, setTheme, ICONS, LOGO, renderTagline, horizontalLine, badge, statusDot, box } from './ui/theme.js';
@@ -40,6 +41,7 @@ export class Nova {
   private projectIndex: ProjectIndex;
   private knowledgeBase: KnowledgeBase;
   private pluginManager: PluginManager;
+  private novaMd: NovaMdLoader;
   private rl!: readline.Interface;
   private cwd: string;
   private running = false;
@@ -64,6 +66,16 @@ export class Nova {
     this.projectIndex = new ProjectIndex();
     this.knowledgeBase = new KnowledgeBase();
     this.pluginManager = new PluginManager(this.tools);
+    this.novaMd = new NovaMdLoader();
+
+    // Discover NOVA.md
+    const novaMdConfig = this.novaMd.discover(this.cwd);
+    if (novaMdConfig) {
+      this.engine.setExtraSystemPrompt(this.novaMd.formatForPrompt());
+      this.novaMd.watch(() => {
+        this.engine.setExtraSystemPrompt(this.novaMd.formatForPrompt());
+      });
+    }
 
     // Apply options
     if (options.mode) this.engine.setMode(options.mode);
@@ -193,6 +205,7 @@ export class Nova {
     const theme = getTheme();
     const model = this.engine.getModel();
     const mode = this.engine.getMode();
+    const shortCwd = basename(this.cwd) || this.cwd;
 
     process.stdout.write(
       chalk.hex(theme.muted)('  ') +
@@ -203,8 +216,28 @@ export class Nova {
       chalk.hex(theme.textDim)('Tools: ') + chalk.hex(theme.text)(String(this.tools.getNames().length)) +
       '\n'
     );
+    process.stdout.write(
+      chalk.hex(theme.muted)('  📂 ') +
+      chalk.hex(theme.accent)(this.cwd) + '\n'
+    );
     process.stdout.write(chalk.hex(theme.muted)(`  /help for commands • /quit to exit • """ for multi-line\n`));
     process.stdout.write(chalk.hex(theme.border)(horizontalLine('─', 60)) + '\n');
+  }
+
+  /** Refresh status bar after state changes */
+  private refreshStatusBar(): void {
+    const theme = getTheme();
+    const model = this.engine.getModel();
+    const mode = this.engine.getMode();
+    process.stdout.write(
+      chalk.hex(theme.muted)('  ') +
+      chalk.hex(theme.textDim)('Model: ') + chalk.hex(theme.primary).bold(model) +
+      chalk.hex(theme.muted)('  │  ') +
+      chalk.hex(theme.textDim)('Mode: ') + badge(mode) +
+      chalk.hex(theme.muted)('  │  ') +
+      chalk.hex(theme.accent)(basename(this.cwd)) +
+      '\n'
+    );
   }
 
   /** Build tab-completion for commands */
@@ -346,6 +379,11 @@ export class Nova {
           await this.shutdown();
           return;
         }
+        // Refresh status bar if state changed
+        if (input.startsWith('/model ') || input.startsWith('/mode ') ||
+            input.startsWith('/theme ') || ['/chat', '/fast', '/code', '/agent'].includes(input)) {
+          this.refreshStatusBar();
+        }
         this.showPrompt();
         return;
       }
@@ -415,21 +453,21 @@ Be specific about file paths, code changes, and commands to run.`;
 
   /** Show the input prompt — uses readline setPrompt for correct backspace handling */
   private showPrompt(): void {
-    const theme = getTheme();
     const mode = this.engine.getMode();
     const modeIcons: Record<string, string> = {
       chat: '💬', fast: '⚡', plan: '📋', code: '💻', agent: '🤖',
     };
     const modeIcon = modeIcons[mode] || '❯';
+    const shortCwd = basename(this.cwd) || this.cwd;
 
-    // Print a colored status line ABOVE the editable prompt
     process.stdout.write('\n');
 
-    // Set a simple, ANSI-free prompt for readline (so backspace works correctly)
-    const plainPrompt = `  ${modeIcon} [${mode}] `;
+    const plainPrompt = `  ${modeIcon} [${mode}] ${shortCwd} > `;
     this.rl.setPrompt(plainPrompt);
     this.rl.prompt();
   }
+
+
 
   /** Show context usage mini-bar */
   private showContextStatus(): void {

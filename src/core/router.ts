@@ -3,11 +3,14 @@
  */
 
 import chalk from 'chalk';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { execSync } from 'node:child_process';
 import { colors, gradient, getTheme, box, badge, tag, ICONS, setTheme, getThemeNames, horizontalLine } from '../ui/theme.js';
 import { TokenCounter } from '../utils/token-counter.js';
 import { formatBytes, formatDuration } from '../utils/helpers.js';
+import { TestRunner } from '../tools/test-runner.js';
+import { CodeReview } from '../tools/code-review.js';
 import type { Engine, NovaMode } from './engine.js';
 import type { ConversationStore } from '../memory/conversation-store.js';
 import type { ConfigManager } from './config.js';
@@ -94,6 +97,12 @@ export class CommandRouter {
         return this.cmdTheme(args);
       case 'project':
         return await this.cmdProject();
+      case 'test':
+        return await this.cmdTest(args);
+      case 'review':
+        return await this.cmdReview(args);
+      case 'security':
+        return await this.cmdSecurity(args);
       default:
         process.stdout.write(chalk.hex(theme.error)(`  ${ICONS.error} Unknown command: /${cmd}\n`));
         process.stdout.write(chalk.hex(theme.muted)(`  Type /help for available commands\n`));
@@ -400,7 +409,6 @@ export class CommandRouter {
   private async cmdProject(): Promise<CommandResult> {
     const t = getTheme();
     process.stdout.write(chalk.hex(t.muted)(`  ${ICONS.search} Analyzing project...`) + '\n');
-    // Use the tool registry to run project_analyze
     const tools = (this.engine as any).tools as ToolRegistry;
     if (tools?.has('project_analyze')) {
       const result = await tools.execute('project_analyze', { path: this.cwd });
@@ -408,6 +416,107 @@ export class CommandRouter {
         process.stdout.write('\n' + result.output.split('\n').map((l: string) => '  ' + l).join('\n') + '\n\n');
       }
     }
+    return { handled: true };
+  }
+
+  /** /test — Run tests with auto-detection */
+  private async cmdTest(args: string[]): Promise<CommandResult> {
+    const t = getTheme();
+    const runner = new TestRunner(this.cwd);
+    const fw = runner.getFramework();
+
+    if (!fw && args.length === 0) {
+      process.stdout.write(chalk.hex(t.warning)(`  ${ICONS.warning} No test framework detected\n`));
+      process.stdout.write(chalk.hex(t.muted)(`  Usage: /test [custom command]\n`));
+      return { handled: true };
+    }
+
+    const customCmd = args.length > 0 ? args.join(' ') : undefined;
+    process.stdout.write(chalk.hex(t.accent)(`  🧪 Running tests`) +
+      chalk.hex(t.muted)(` (${customCmd || fw?.name || 'custom'})...`) + '\n\n');
+
+    const result = runner.run(customCmd);
+
+    if (result.passed) {
+      process.stdout.write(chalk.hex(t.success).bold(`  ✅ ${result.summary}`) +
+        chalk.hex(t.muted)(` (${result.duration}ms)`) + '\n');
+    } else {
+      process.stdout.write(chalk.hex(t.error).bold(`  ❌ ${result.summary}`) +
+        chalk.hex(t.muted)(` (${result.duration}ms)`) + '\n');
+      // Show last 20 lines of output
+      const lines = result.output.trim().split('\n').slice(-20);
+      process.stdout.write(chalk.hex(t.border)('\n  ┌─ Test Output ─────────\n'));
+      for (const line of lines) {
+        process.stdout.write(chalk.hex(t.border)('  │ ') + chalk.hex(t.textDim)(line) + '\n');
+      }
+      process.stdout.write(chalk.hex(t.border)('  └────────────────────\n'));
+      process.stdout.write(chalk.hex(t.muted)(`\n  💡 Use Agent mode to auto-fix: /agent then ask to fix tests\n`));
+    }
+    return { handled: true };
+  }
+
+  /** /review — AI code review */
+  private async cmdReview(args: string[]): Promise<CommandResult> {
+    const t = getTheme();
+
+    if (args.length === 0) {
+      // Review git diff
+      try {
+        const diff = execSync('git diff --staged', { cwd: this.cwd, encoding: 'utf-8' });
+        if (!diff.trim()) {
+          const unstaged = execSync('git diff', { cwd: this.cwd, encoding: 'utf-8' });
+          if (!unstaged.trim()) {
+            process.stdout.write(chalk.hex(t.muted)(`  No changes to review. Stage files or specify: /review <file>\n`));
+            return { handled: true };
+          }
+          process.stdout.write(chalk.hex(t.accent)(`  🔍 Reviewing unstaged changes...\n\n`));
+          const prompt = CodeReview.buildPrompt({ diffMode: true, diffContent: unstaged });
+          await this.engine.processMessage(prompt);
+          return { handled: true };
+        }
+        process.stdout.write(chalk.hex(t.accent)(`  🔍 Reviewing staged changes...\n\n`));
+        const prompt = CodeReview.buildPrompt({ diffMode: true, diffContent: diff });
+        await this.engine.processMessage(prompt);
+      } catch {
+        process.stdout.write(chalk.hex(t.warning)(`  ${ICONS.warning} Git not available. Specify a file: /review <file>\n`));
+      }
+      return { handled: true };
+    }
+
+    // Review specific file
+    const filePath = join(this.cwd, args[0]);
+    if (!existsSync(filePath)) {
+      process.stdout.write(chalk.hex(t.error)(`  ${ICONS.error} File not found: ${args[0]}\n`));
+      return { handled: true };
+    }
+
+    process.stdout.write(chalk.hex(t.accent)(`  🔍 Reviewing ${args[0]}...\n\n`));
+    const content = readFileSync(filePath, 'utf-8');
+    const prompt = CodeReview.buildPrompt({ filePath: args[0], content });
+    await this.engine.processMessage(prompt);
+    return { handled: true };
+  }
+
+  /** /security — Security scan */
+  private async cmdSecurity(args: string[]): Promise<CommandResult> {
+    const t = getTheme();
+
+    if (args.length === 0) {
+      process.stdout.write(chalk.hex(t.muted)(`  Usage: /security <file>\n`));
+      process.stdout.write(chalk.hex(t.muted)(`  Example: /security src/auth/login.ts\n`));
+      return { handled: true };
+    }
+
+    const filePath = join(this.cwd, args[0]);
+    if (!existsSync(filePath)) {
+      process.stdout.write(chalk.hex(t.error)(`  ${ICONS.error} File not found: ${args[0]}\n`));
+      return { handled: true };
+    }
+
+    process.stdout.write(chalk.hex(t.accent)(`  🔒 Security scanning ${args[0]}...\n\n`));
+    const content = readFileSync(filePath, 'utf-8');
+    const prompt = CodeReview.buildSecurityPrompt(content, args[0]);
+    await this.engine.processMessage(prompt);
     return { handled: true };
   }
 }
