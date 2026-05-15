@@ -290,4 +290,47 @@ export function registerBuiltinTools(registry: ToolRegistry, cwd: string): void 
       }
     },
   });
+
+  // ── sequential_thinking (server-side stateful) ──
+  let thinkSession = { thoughts: [] as string[], total: 3, done: false };
+  registry.register({
+    name: 'sequential_thinking',
+    description: 'Record a thinking step for complex problem-solving. Call multiple times to build a chain of thought. The server auto-tracks step numbers — just provide your thought text.',
+    category: 'system',
+    requiresConfirmation: false,
+    parameters: {
+      thought: 'string',
+      totalThoughts: 'number?',
+      done: 'boolean?',
+    },
+    handler: async (args): Promise<ToolResult> => {
+      // Reset session if previous was completed
+      if (thinkSession.done) {
+        thinkSession = { thoughts: [], total: 3, done: false };
+      }
+
+      // Update total if provided (first call usually sets this)
+      if (args.totalThoughts && thinkSession.thoughts.length === 0) {
+        thinkSession.total = Math.min(args.totalThoughts as number, 10);
+      }
+
+      // Record thought
+      thinkSession.thoughts.push(args.thought as string);
+      const step = thinkSession.thoughts.length;
+
+      // Auto-complete if we hit the target or LLM says done
+      if (args.done || step >= thinkSession.total) {
+        thinkSession.done = true;
+        return {
+          success: true,
+          output: `✔ Thinking complete (${step} steps). Proceed with implementation.`,
+        };
+      }
+
+      return {
+        success: true,
+        output: `Step ${step}/${thinkSession.total} recorded. Call sequential_thinking again with your next thought (step ${step + 1}).`,
+      };
+    },
+  });
 }

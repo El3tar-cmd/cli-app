@@ -316,4 +316,20 @@ export const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'sequential_thinking',
+      description: 'Record a thinking step for complex problem-solving. Call multiple times to build a chain of thought. The server auto-tracks step numbers. Just provide your thought text. Set done=true on your final thought.',
+      parameters: {
+        type: 'object',
+        properties: {
+          thought: { type: 'string', description: 'Your current thinking step' },
+          totalThoughts: { type: 'number', description: 'Estimated total steps (only needed on first call)' },
+          done: { type: 'boolean', description: 'Set true when thinking is complete' },
+        },
+        required: ['thought'],
+      },
+    },
+  },
 ];
