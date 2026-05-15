@@ -392,12 +392,21 @@ export class Nova {
 
       // Process with AI
       this.processing = true;
+      const spinner = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+      let spinIdx = 0;
+      const spinTimer = setInterval(() => {
+        process.stdout.write(`\r  ${chalk.hex(getTheme().primary)(spinner[spinIdx++ % spinner.length])} ${chalk.hex(getTheme().muted)('Processing...')}`);
+      }, 80);
+      const startTime = Date.now();
       try {
         await this.engine.processMessage(input);
       } catch (err: any) {
         process.stdout.write(chalk.hex(getTheme().error)(`\n  ${ICONS.error} ${err.message}\n`));
       }
+      clearInterval(spinTimer);
       this.processing = false;
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      process.stdout.write(`\n  ${chalk.hex(getTheme().success)('✔ Done')} ${chalk.hex(getTheme().muted)(`(${elapsed}s)`)}\n`);
 
       this.showContextStatus();
 

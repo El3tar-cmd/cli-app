@@ -4,7 +4,7 @@
 
 import chalk from 'chalk';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { execSync } from 'node:child_process';
 import { colors, gradient, getTheme, box, badge, tag, ICONS, setTheme, getThemeNames, horizontalLine } from '../ui/theme.js';
 import { TokenCounter } from '../utils/token-counter.js';
@@ -109,6 +109,8 @@ export class CommandRouter {
         return await this.cmdReview(args);
       case 'security':
         return await this.cmdSecurity(args);
+      case 'init':
+        return await this.cmdInit();
       default:
         process.stdout.write(chalk.hex(theme.error)(`  ${ICONS.error} Unknown command: /${cmd}\n`));
         process.stdout.write(chalk.hex(theme.muted)(`  Type /help for available commands\n`));
@@ -523,6 +525,44 @@ export class CommandRouter {
     const content = readFileSync(filePath, 'utf-8');
     const prompt = CodeReview.buildSecurityPrompt(content, args[0]);
     await this.engine.processMessage(prompt);
+    return { handled: true };
+  }
+  private async cmdInit(): Promise<CommandResult> {
+    const t = getTheme();
+    const novaMdPath = join(this.cwd, 'NOVA.md');
+
+    if (existsSync(novaMdPath)) {
+      process.stdout.write(chalk.hex(t.warning)(`  ${ICONS.warning} NOVA.md already exists in this project\n`));
+      return { handled: true };
+    }
+
+    const template = `# NOVA Project Configuration
+
+## Project
+- **Name**: ${basename(this.cwd)}
+- **Type**: web-app
+- **Language**: TypeScript
+
+## Architecture
+Describe your project architecture here.
+
+## Conventions
+- Use camelCase for variables
+- Use PascalCase for classes
+- Always add JSDoc comments
+
+## Rules
+- Never delete files without confirmation
+- Always run tests before committing
+- Follow existing code style
+
+## Context
+Add any extra context NOVA should know about your project.
+`;
+
+    writeFileSync(novaMdPath, template, 'utf-8');
+    process.stdout.write(chalk.hex(t.success)(`  ${ICONS.success} Created NOVA.md in ${this.cwd}\n`));
+    process.stdout.write(chalk.hex(t.muted)(`  Edit it to customize NOVA's behavior for this project\n`));
     return { handled: true };
   }
 }
