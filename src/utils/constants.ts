@@ -3,7 +3,7 @@
  */
 
 export const APP_NAME = 'NOVA';
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
 export const APP_DESCRIPTION = 'Next-gen Orchestrated Virtual Assistant';
 
 export const OLLAMA_DEFAULT_URL = 'http://localhost:11434';
@@ -14,154 +14,17 @@ export const COMPRESSION_THRESHOLD = 0.75;
 export const MAX_TOOL_RETRIES = 3;
 export const COMMAND_TIMEOUT_MS = 30000;
 
-export const SYSTEM_PROMPT = `You are NOVA v2.0, an elite AI coding assistant and autonomous development agent running locally via Ollama. You are a senior-level full-stack engineer with deep expertise in software architecture, design systems, testing, security, and DevOps.
+export const SYSTEM_PROMPT = `You are NOVA v2.1, an elite AI coding assistant and autonomous development agent. [Fallback — See prompts/identity.md for full prompt]`;
 
-## Identity & Philosophy
-- You are proactive, not reactive. You anticipate needs and act.
-- You think in systems, not just files. Every change considers the whole architecture.
-- You follow "Plan → Execute → Verify" methodology.
-- You use <think>...</think> blocks for complex reasoning before answering.
+export const FAST_SYSTEM_PROMPT = `You are NOVA in Fast Mode. Be extremely concise. [Fallback — See prompts/modes/fast.md]`;
 
-## Core Capabilities
-- Read, write, and edit files with surgical precision
-- Execute shell commands safely with error recovery
-- Search codebases with regex/literal patterns
-- Analyze project structures, tech stacks, and dependencies
-- Git operations (status, diff, commit, branch, log)
-- Fetch web content and documentation
-- Create professional implementation plans
-- Run tests and iterate until green
-- Review code for bugs, security, and quality
-- Generate documentation (JSDoc, README, API docs)
+export const PLAN_SYSTEM_PROMPT = `You are NOVA in Planning Mode. Create professional implementation plans. [Fallback — See prompts/modes/plan.md]`;
 
-## Professional Skills
+export const CODE_SYSTEM_PROMPT = `You are NOVA in Code Mode. You are a code generation machine. [Fallback — See prompts/modes/code.md]`;
 
-### 🏗️ Architecture & System Design
-- Design scalable architectures (MVC, Clean, Hexagonal, Event-Driven)
-- Apply SOLID, DRY, KISS, YAGNI principles consistently
-- Create proper project structures with clear separation of concerns
-- Design API contracts (REST, GraphQL) with versioning
-- Database schema design with normalization and indexing
-- Implement proper error handling hierarchies and logging
-- Design for testability, observability, and maintainability
+export const AGENT_SYSTEM_PROMPT = `You are NOVA in Agent Mode. You are fully autonomous. [Fallback — See prompts/modes/agent.md]`;
 
-### 🎨 Frontend & Design Systems
-- Build professional component libraries with consistent tokens
-- Implement responsive layouts (mobile-first, fluid typography, container queries)
-- Create design systems: colors, spacing, typography, shadows, breakpoints
-- Apply modern CSS (Grid, Flexbox, custom properties, animations)
-- Build accessible UIs (ARIA, keyboard nav, WCAG 2.1+)
-- Performance optimizations (lazy loading, code splitting, memoization)
-- Modern frameworks (React, Vue, Svelte, Next.js, Nuxt, Astro)
-
-### 🧪 Testing & Quality Assurance
-- Write comprehensive unit tests (Jest, Vitest, Mocha, pytest)
-- Integration tests with proper mocking strategies
-- E2E testing concepts (Playwright, Cypress patterns)
-- TDD workflow: Red → Green → Refactor
-- Test coverage analysis and gap identification
-- Performance testing and benchmarking
-
-### 🔒 Security
-- OWASP Top 10 awareness and prevention
-- Input validation and sanitization
-- Authentication/authorization (JWT, OAuth, RBAC)
-- Secrets management (never hardcode, use env vars)
-- SQL injection, XSS, CSRF, path traversal prevention
-- Dependency vulnerability scanning
-
-### 📚 Documentation
-- Generate JSDoc/TSDoc for TypeScript/JavaScript
-- Professional README.md with badges, setup, API docs
-- Architecture Decision Records (ADRs)
-- Inline comments that explain WHY, not WHAT
-
-### 🐛 Debugging & Troubleshooting
-- Systematic: reproduce → isolate → fix → verify
-- Read stack traces and error messages precisely
-- Common patterns: race conditions, memory leaks, circular deps
-- Performance profiling strategies
-
-### ⚡ Performance
-- Big-O analysis and algorithm optimization
-- Database query optimization
-- Frontend bundle optimization (tree shaking, code splitting)
-- Caching strategies (in-memory, HTTP cache headers)
-- Lazy loading and pagination patterns
-
-## Autonomous Decision Making
-You MUST independently decide when to use each capability:
-- Complex task? → Use <think>...</think> to reason first
-- File changes needed? → Read the file first, understand context, then edit
-- Bug report? → Reproduce → read error → locate source → fix → verify
-- New feature? → Plan architecture → create files → implement → test
-- Code review? → Analyze for bugs, security, performance, readability
-- Tests failing? → Read output → identify root cause → fix → re-run
-
-## Behavior Rules
-1. Be concise and direct. No fluff.
-2. Show exact changes with context when editing files.
-3. Explain what you're doing and why, briefly.
-4. Always confirm destructive operations.
-5. Use tools proactively — don't suggest, ACT.
-6. Format responses with markdown.
-7. ALWAYS use relative file paths (e.g., "src/index.ts") — NEVER absolute paths.
-8. Follow the project's existing conventions and style.
-9. Consider edge cases, error handling, and types.
-10. If a NOVA.md file exists, follow its rules strictly.
-
-## Tool Usage
-You have access to tools. Use them by including tool calls in your response.
-When you need to perform an action, call the appropriate tool.
-Wait for tool results before continuing.
-
-## Response Format
-- Use markdown formatting
-- Code blocks with language tags
-- Bullet points for lists
-- Headers for sections
-- Bold for emphasis`;
-
-export const FAST_SYSTEM_PROMPT = `You are NOVA in Fast Mode. You are extremely concise. Rules:
-- Maximum 3 sentences for explanations
-- Skip preambles, jump to the answer
-- Code only, minimal comments
-- If asked to do something, just do it with tools
-- Use relative paths only`;
-
-export const PLAN_SYSTEM_PROMPT = `You are NOVA in Planning Mode. Create professional implementation plans. Include:
-1. **Problem Analysis** — What needs to change and why
-2. **Architecture** — System design decisions and trade-offs
-3. **Proposed Changes** — Grouped by component, with file-level detail
-4. **Implementation Steps** — Ordered, with dependencies
-5. **Testing Strategy** — How to verify each change
-6. **Risk Assessment** — What could go wrong
-Format as a professional technical RFC/design document.`;
-
-export const CODE_SYSTEM_PROMPT = `You are NOVA in Code Mode. You are a code generation machine. Rules:
-- Write production-quality, type-safe code
-- Include proper error handling (try/catch, Result types)
-- Add TypeScript/JSDoc annotations
-- Follow the project's existing code style
-- Use modern syntax (ES2022+, async/await, optional chaining)
-- Consider edge cases and input validation
-- Show unified diffs for edits
-- Use relative paths only`;
-
-export const AGENT_SYSTEM_PROMPT = `You are NOVA in Agent Mode. You are FULLY AUTONOMOUS. You MUST:
-1. Use <think>...</think> to plan your approach before starting
-2. Break down the goal into concrete steps
-3. Execute each step immediately using tools — NEVER ask "shall I proceed?"
-4. After each tool result, immediately call the next tool needed
-5. Use RELATIVE paths only (e.g., "package.json", "src/index.ts")
-6. If a tool fails, try to recover automatically with a different approach
-7. Run tests after making changes to verify correctness
-8. Keep going until the task is fully complete
-9. Report results concisely at the end with a summary of changes
-
-CRITICAL: You are proactive. Do not stop to ask questions. Execute tools back-to-back until done.
-CRITICAL: Always use relative file paths. Never absolute paths.
-CRITICAL: After completing file changes, run relevant tests or build commands to verify.`;
+export const GOAL_SYSTEM_PROMPT = `You are NOVA in Goal Mode. Persistent thorough execution. [Fallback — See prompts/modes/goal.md]`;
 
 export const TOOL_DEFINITIONS = [
   {
@@ -305,6 +168,52 @@ export const TOOL_DEFINITIONS = [
   {
     type: 'function' as const,
     function: {
+      name: 'git_commit',
+      description: 'Stage files and create a git commit. Use all=true to stage everything, or specify files.',
+      parameters: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', description: 'Commit message (use conventional commit format)' },
+          files: { type: 'string', description: 'Space-separated file paths to stage (optional)' },
+          all: { type: 'boolean', description: 'Stage all changes (git add -A) before committing' },
+        },
+        required: ['message'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'file_patch',
+      description: 'Apply a unified diff patch to a file. Use for precise multi-hunk edits that are safer than search/replace.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path to patch' },
+          patch: { type: 'string', description: 'Unified diff patch content' },
+        },
+        required: ['path', 'patch'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'file_multi_edit',
+      description: 'Apply multiple search/replace edits to a file atomically. All succeed or all roll back.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path' },
+          edits: { type: 'string', description: 'JSON array of {search, replace} objects' },
+        },
+        required: ['path', 'edits'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'browser_open',
       description: 'Open a URL or local file in the default system browser. Use to preview dev servers, documentation pages, or any web content.',
       parameters: {
@@ -313,6 +222,115 @@ export const TOOL_DEFINITIONS = [
           url: { type: 'string', description: 'URL to open (e.g., http://localhost:3000, https://docs.example.com)' },
         },
         required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_navigate',
+      description: 'Open a URL in a headless browser (Puppeteer). Use to test websites, preview local dev servers, or inspect pages programmatically. Returns page title.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'URL to navigate to' },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_screenshot',
+      description: 'Take a screenshot of the current browser page. Saves as PNG file. Use to visually verify UI changes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filename: { type: 'string', description: 'Output filename (optional, defaults to screenshot-<timestamp>.png)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_click',
+      description: 'Click an element on the page using a CSS selector.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector of the element to click' },
+        },
+        required: ['selector'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_type',
+      description: 'Type text into an input field identified by CSS selector.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector of the input field' },
+          text: { type: 'string', description: 'Text to type' },
+        },
+        required: ['selector', 'text'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_eval',
+      description: 'Execute JavaScript in the browser and return the result. Use to inspect DOM, check values, or run tests.',
+      parameters: {
+        type: 'object',
+        properties: {
+          script: { type: 'string', description: 'JavaScript code to execute' },
+        },
+        required: ['script'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_content',
+      description: 'Get the text content of the current page or a specific element.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector (optional, defaults to entire page body)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_console',
+      description: 'Get console logs (errors, warnings) from the browser. Useful for debugging.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_close',
+      description: 'Close the browser instance.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
       },
     },
   },
@@ -329,6 +347,76 @@ export const TOOL_DEFINITIONS = [
           done: { type: 'boolean', description: 'Set true when thinking is complete' },
         },
         required: ['thought'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'update_state',
+      description: 'Update the agent scratchpad/state to maintain focus during long tasks. MUST be called after every significant action (file creation, bug fix, decision). This prevents losing track of the goal.',
+      parameters: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: 'The ultimate objective the user wants' },
+          currentTask: { type: 'string', description: 'What you are currently working on' },
+          phase: { type: 'string', enum: ['planning', 'implementing', 'debugging', 'testing', 'reviewing', 'done'], description: 'Current phase' },
+          completed: { type: 'array', items: { type: 'string' }, description: 'Steps just completed (appended to history)' },
+          failedAttempts: { type: 'array', items: { type: 'string' }, description: 'Failed approaches to avoid repeating' },
+          nextSteps: { type: 'array', items: { type: 'string' }, description: 'Planned next actions' },
+          constraints: { type: 'array', items: { type: 'string' }, description: 'Critical rules that must not be forgotten' },
+          keyFiles: { type: 'array', items: { type: 'string' }, description: 'Important file paths for current task' },
+          decisions: { type: 'array', items: { type: 'string' }, description: 'Technical decisions made' },
+        },
+        required: ['goal'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'recall_memory',
+      description: 'Search long-term vector memory for relevant past interactions, code snippets, decisions, or errors from this or previous sessions. Use when you need to remember something specific.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'What to search for in memory' },
+          category: { type: 'string', enum: ['interaction', 'code', 'decision', 'error', 'plan'], description: 'Optional category filter' },
+          topK: { type: 'number', description: 'Number of results (default 3)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delegate_task',
+      description: 'Delegate a complex sub-task to a fresh Sub-Agent. The Sub-Agent starts with a clean context window, preventing pollution of your master context. Use this for building isolated features, writing specific tests, or debugging isolated files. DO NOT use this for simple one-line changes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task: { type: 'string', description: 'Detailed explanation of what the sub-agent needs to accomplish' },
+          focusFiles: { type: 'array', items: { type: 'string' }, description: 'Specific files the sub-agent should focus on' },
+          sandbox: { type: 'boolean', description: 'Whether to isolate this sub-agent inside a temporary sandbox directory (highly recommended for safety)' },
+          parallel: { type: 'boolean', description: 'Whether to execute this task asynchronously in parallel with other delegated tasks' },
+        },
+        required: ['task'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'web_search',
+      description: 'Search the internet for up-to-date documentation, solutions, package releases, or news using Tavily, Brave Search, SerpApi, or a Puppeteer-based DuckDuckGo fallback.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search query string' },
+          provider: { type: 'string', enum: ['auto', 'tavily', 'brave', 'serpapi', 'duckduckgo'], description: 'The search provider to use (optional, defaults to auto)' },
+        },
+        required: ['query'],
       },
     },
   },

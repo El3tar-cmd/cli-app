@@ -57,6 +57,15 @@ export class StreamRenderer {
       this.processLine(line);
       this.output.write('\n');
     }
+    // If there is remaining buffer without newline, render it immediately
+    if (this.state.lineBuffer) {
+      if (this.state.inCodeBlock) {
+        this.output.write(chalk.hex(getTheme().textDim)(this.state.lineBuffer));
+      } else {
+        this.output.write(this.renderInline(this.state.lineBuffer));
+      }
+      this.state.lineBuffer = '';
+    }
   }
 
   /** Flush any remaining buffer */
@@ -232,18 +241,10 @@ export class StreamRenderer {
       }
 
       if (inCode) {
-        output.push(chalk.hex(getTheme().border)('  │ ') + chalk.hex('#ABB2BF')(line));
+        output.push(chalk.hex(getTheme().border)('  │ ') + chalk.hex(getTheme().text)(line));
         continue;
       }
 
-      // Process non-code lines same as streaming
-      this.state.lineBuffer = '';
-      const captured: string[] = [];
-      const originalWrite = this.output.write.bind(this.output);
-      // Capture output instead of writing
-      let result = '';
-      this.processLine(line);
-      // Actually just re-process manually for full render
       output.push(this.renderLineToString(line));
     }
 

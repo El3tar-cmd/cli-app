@@ -8,7 +8,7 @@ export interface ToolDefinition {
   parameters: Record<string, any>;
   handler: (args: Record<string, unknown>) => Promise<ToolResult>;
   requiresConfirmation?: boolean;
-  category: 'file' | 'command' | 'search' | 'git' | 'web' | 'system';
+  category: 'file' | 'command' | 'search' | 'git' | 'web' | 'system' | 'memory';
 }
 
 export interface ToolResult {
@@ -20,6 +20,7 @@ export interface ToolResult {
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>();
+  private shared = new Map<string, any>();
 
   register(tool: ToolDefinition): void {
     this.tools.set(tool.name, tool);
@@ -37,12 +38,26 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
+  unregister(name: string): boolean {
+    return this.tools.delete(name);
+  }
+
   getByCategory(category: string): ToolDefinition[] {
     return this.getAll().filter((t) => t.category === category);
   }
 
   getNames(): string[] {
     return Array.from(this.tools.keys());
+  }
+
+  /** Store a shared object accessible by tools (e.g., Scratchpad, VectorMemory) */
+  setShared(key: string, value: any): void {
+    this.shared.set(key, value);
+  }
+
+  /** Get a shared object */
+  getShared(key: string): any {
+    return this.shared.get(key);
   }
 
   async execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {

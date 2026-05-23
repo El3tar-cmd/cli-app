@@ -1,0 +1,1 @@
+nova telegram --token "8944038788:AAHUEnrL5fqWRDBoJJQ2DS9Lnckd3KKX9oQ" --allowed "8486638089"

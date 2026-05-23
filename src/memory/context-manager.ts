@@ -75,7 +75,7 @@ export class ContextManager {
         available -= entry.tokens;
         selected.unshift(entry);
       } else {
-        break; // Stop when budget exceeded
+        continue; // Continue checking other messages that might fit
       }
     }
 

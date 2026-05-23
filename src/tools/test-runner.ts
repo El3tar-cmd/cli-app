@@ -3,7 +3,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface TestResult {
@@ -54,7 +54,7 @@ export class TestRunner {
     const pkgPath = join(this.cwd, 'package.json');
     if (existsSync(pkgPath)) {
       try {
-        const pkg = JSON.parse(require('node:fs').readFileSync(pkgPath, 'utf-8'));
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
         if (pkg.scripts?.test && pkg.scripts.test !== 'echo "Error: no test specified" && exit 1') {
           return { name: 'npm', command: 'npm test', detected: true };
         }
@@ -76,6 +76,16 @@ export class TestRunner {
 
   /** Run tests */
   run(customCommand?: string): TestResult {
+    if (customCommand && /[;&|`$(){}]/.test(customCommand)) {
+      return {
+        passed: false,
+        output: 'Security Error: Custom command contains potentially dangerous shell characters.',
+        summary: 'Security Blocked',
+        framework: 'none',
+        duration: 0,
+      };
+    }
+
     const command = customCommand || this.framework?.command;
     if (!command) {
       return {

@@ -4,8 +4,9 @@
  */
 
 import * as readline from 'node:readline';
-import { writeFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { join, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
 import { ConfigManager } from './core/config.js';
 import { Engine, type NovaMode } from './core/engine.js';
@@ -13,17 +14,24 @@ import { CommandRouter } from './core/router.js';
 import { ToolRegistry } from './tools/tool-registry.js';
 import { registerBuiltinTools } from './tools/built-in.js';
 import { registerBrowserTools } from './tools/browser.js';
+import { registerSubagentTools } from './tools/subagent.js';
 import { ConversationStore } from './memory/conversation-store.js';
 import { ProjectIndex } from './memory/project-index.js';
 import { KnowledgeBase } from './memory/knowledge-base.js';
 import { NovaMdLoader } from './memory/nova-md.js';
+import { NovaAutoConfig } from './memory/nova-auto-config.js';
 import { PluginManager } from './plugins/plugin-manager.js';
+import { SandboxManager } from './utils/sandbox.js';
 import { CommandPicker } from './ui/command-picker.js';
 import { colors, gradient, getTheme, setTheme, ICONS, LOGO, renderTagline, horizontalLine, badge, statusDot, box } from './ui/theme.js';
 import { TokenCounter } from './utils/token-counter.js';
 import { logger } from './utils/logger.js';
 import { APP_NAME, APP_VERSION } from './utils/constants.js';
 import { sleep, formatDuration, getNovaSubDir, generateId } from './utils/helpers.js';
+import { McpClient } from './core/mcp-client.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export interface NovaOptions {
   model?: string;
@@ -51,6 +59,7 @@ export class Nova {
   private inMultiline = false;
   private processing = false;
   private messageQueue: string[] = [];
+  private mcpClient: McpClient;
 
   constructor(options: NovaOptions = {}) {
     this.options = options;
@@ -62,13 +71,26 @@ export class Nova {
     registerBuiltinTools(this.tools, this.cwd);
     registerBrowserTools(this.tools, this.cwd);
 
-    this.engine = new Engine(this.config, this.tools);
+    // Initialize MCP Client
+    this.mcpClient = new McpClient(this.tools, this.cwd);
+
+    // Resolve prompts directory (relative to package root)
+    const promptsDir = join(__dirname, '..', 'prompts');
+
+    this.engine = new Engine(this.config, this.tools, promptsDir, this.cwd);
     this.store = new ConversationStore();
     this.router = new CommandRouter(this.engine, this.store, this.config, this.cwd);
     this.projectIndex = new ProjectIndex();
     this.knowledgeBase = new KnowledgeBase();
     this.pluginManager = new PluginManager(this.tools);
     this.novaMd = new NovaMdLoader();
+
+    // Auto-generate or update NOVA.md if it's a project
+    const autoConfig = new NovaAutoConfig(this.cwd);
+    const { generated } = autoConfig.autoGenerate();
+    if (!generated) {
+      autoConfig.autoUpdate();
+    }
 
     // Discover NOVA.md
     const novaMdConfig = this.novaMd.discover(this.cwd);
@@ -91,6 +113,30 @@ export class Nova {
 
     // Set confirm handler
     this.engine.setConfirmHandler(async (msg) => this.confirm(msg));
+
+    // Register Sub-Agent Delegation Tool (Phase 3 of Cognitive Architecture)
+    registerSubagentTools(this.tools, this.cwd, this.config, promptsDir, this.engine);
+
+    // Listen to Sub-Agent events for CLI visibility
+    this.engine.on('subagent_spawned', (data: { task: string, depth: number, sandbox: boolean }) => {
+      const activeTheme = getTheme();
+      const sandboxLabel = data.sandbox ? chalk.hex(activeTheme.warning)(' [SANDBOXED]') : '';
+      process.stdout.write(
+        '\n' + chalk.hex(activeTheme.primary).bold(`🤖 ${ICONS.nova} Sub-Agent Spawned (Level ${data.depth})${sandboxLabel}:`) + '\n' +
+        chalk.hex(activeTheme.textDim)(`   Task: "${data.task}"`) + '\n'
+      );
+    });
+
+    this.engine.on('subagent_completed', (data: { task: string, success: boolean, changes: number }) => {
+      const activeTheme = getTheme();
+      const statusIcon = data.success ? chalk.hex(activeTheme.success)('✅') : chalk.hex(activeTheme.error)('❌');
+      const statusText = data.success ? 'Completed' : 'Failed';
+      process.stdout.write(
+        '\n' + statusIcon + ' ' + chalk.hex(activeTheme.primary).bold(`Sub-Agent ${statusText}:`) + '\n' +
+        chalk.hex(activeTheme.textDim)(`   Task: "${data.task}"`) + '\n' +
+        chalk.hex(activeTheme.textDim)(`   Changes: ${data.changes} files`) + '\n'
+      );
+    });
   }
 
   /** Start NOVA */
@@ -126,6 +172,9 @@ export class Nova {
       );
     }
 
+    // Load MCP dynamic tools
+    await this.mcpClient.init();
+
     // Load plugins
     const pluginCount = await this.pluginManager.loadAll();
     if (pluginCount > 0) {
@@ -158,6 +207,7 @@ export class Nova {
     // One-shot mode
     if (this.options.oneShot) {
       await this.engine.processMessage(this.options.oneShot);
+      this.mcpClient.cleanup();
       process.exit(0);
     }
 
@@ -392,7 +442,7 @@ export class Nova {
 
       // Process with AI
       this.processing = true;
-      const spinner = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+      const spinner = ICONS.spinner as string[];
       let spinIdx = 0;
       const spinTimer = setInterval(() => {
         process.stdout.write(`\r  ${chalk.hex(getTheme().primary)(spinner[spinIdx++ % spinner.length])} ${chalk.hex(getTheme().muted)('Processing...')}`);
@@ -554,6 +604,7 @@ Be specific about file paths, code changes, and commands to run.`;
 
     process.stdout.write('\n' + gradient('  ✨ Until next time. NOVA signing off.') + '\n\n');
     this.rl?.close();
+    this.mcpClient.cleanup();
     process.exit(0);
   }
 }

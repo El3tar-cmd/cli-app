@@ -138,7 +138,6 @@ export class ProjectIndex {
           try {
             const stat = statSync(fullPath);
             node.size = stat.size;
-            this.cache.get(dirPath)?.totalSize;
           } catch {}
           node.ext = extname(entry.name);
         }

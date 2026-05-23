@@ -121,6 +121,13 @@ export class PluginManager {
       await plugin.deactivate();
     }
 
+    // Remove registered tools from the registry
+    if (plugin.tools) {
+      for (const toolName of Object.keys(plugin.tools)) {
+        this.toolRegistry.unregister(`${plugin.manifest.name}.${toolName}`);
+      }
+    }
+
     this.plugins.delete(name);
     return true;
   }

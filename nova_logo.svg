@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="70%" fx="50%" fy="50%">
+      <stop offset="0%" stop-color="#15171e" />
+      <stop offset="100%" stop-color="#090a0f" />
+    </radialGradient>
+    
+    <!-- Neon Cyan & Blue Gradient for Orbits -->
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE" />
+      <stop offset="100%" stop-color="#4FACFE" />
+    </linearGradient>
+
+    <!-- Neon Pink & Violet Gradient for Core -->
+    <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F355DA" />
+      <stop offset="50%" stop-color="#7000FF" />
+      <stop offset="100%" stop-color="#0018FF" />
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="15" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <filter id="deepGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="35" result="blur" />
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="800" fill="url(#bgGrad)" />
+
+  <!-- Ambient Nebula Background Glow -->
+  <circle cx="400" cy="350" r="180" fill="#7000FF" opacity="0.25" filter="url(#deepGlow)" />
+  <circle cx="400" cy="350" r="120" fill="#00F2FE" opacity="0.15" filter="url(#deepGlow)" />
+
+  <!-- Geometric Starburst / Nova Core -->
+  <g transform="translate(400, 350)">
+    <!-- Rotating Outer Rings -->
+    <ellipse cx="0" cy="0" rx="220" ry="80" fill="none" stroke="url(#cyanGrad)" stroke-width="2" opacity="0.4" transform="rotate(-30)" />
+    <ellipse cx="0" cy="0" rx="220" ry="80" fill="none" stroke="url(#cyanGrad)" stroke-width="4" stroke-dasharray="10 15" transform="rotate(30)" />
+    <ellipse cx="0" cy="0" rx="240" ry="90" fill="none" stroke="url(#pinkGrad)" stroke-width="1.5" opacity="0.3" transform="rotate(90)" />
+
+    <!-- Core Starburst Rays -->
+    <g filter="url(#glow)">
+      <!-- Main Vertical Spike -->
+      <path d="M 0,-160 Q 5,-40 20,0 Q 5,40 0,160 Q -5,40 -20,0 Q -5,-40 0,-160 Z" fill="url(#cyanGrad)" />
+      <!-- Main Horizontal Spike -->
+      <path d="M -160,0 Q -40,5 0,20 Q 40,5 160,0 Q 40,-5 0,-20 Q -40,-5 -160,0 Z" fill="url(#cyanGrad)" />
+      
+      <!-- Diagonal Spikes -->
+      <g transform="rotate(45)">
+        <path d="M 0,-100 Q 4,-25 12,0 Q 4,25 0,100 Q -4,25 -12,0 Q -4,-25 0,-100 Z" fill="url(#pinkGrad)" />
+        <path d="M -100,0 Q -25,4 0,12 Q 25,4 100,0 Q 25,-4 0,-12 Q -25,-4 -100,0 Z" fill="url(#pinkGrad)" />
+      </g>
+    </g>
+
+    <!-- Bright Central Singularity -->
+    <circle cx="0" cy="0" r="16" fill="#FFFFFF" filter="url(#glow)" />
+    <circle cx="0" cy="0" r="8" fill="#00F2FE" />
+  </g>
+
+  <!-- Typography -->
+  <g text-anchor="middle">
+    <!-- Brand Name "NOVA" -->
+    <text x="400" y="620" font-family="'Outfit', 'Inter', 'Montserrat', sans-serif" font-size="72" font-weight="900" letter-spacing="18" fill="#FFFFFF">
+      N<tspan fill="url(#cyanGrad)">O</tspan>VA
+    </text>
+    
+    <!-- Subtitle -->
+    <text x="400" y="660" font-family="'Inter', sans-serif" font-size="16" font-weight="600" letter-spacing="8" fill="#6C7289" opacity="0.8">
+      AGENTIC DEVOPS HUB
+    </text>
+    
+    <!-- Accent Line -->
+    <line x1="320" y1="695" x2="480" y2="695" stroke="url(#cyanGrad)" stroke-width="2" stroke-linecap="round" opacity="0.7" />
+  </g>
+</svg>

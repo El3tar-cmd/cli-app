@@ -23,15 +23,21 @@ export class ConversationStore {
     this.dir = getNovaSubDir('conversations');
   }
 
+  private sanitizeId(id: string): string {
+    return id.replace(/[^a-zA-Z0-9_-]/g, '_');
+  }
+
   /** Save a conversation */
   save(conversation: SavedConversation): void {
-    const filePath = join(this.dir, `${conversation.id}.json`);
+    const safeId = this.sanitizeId(conversation.id);
+    const filePath = join(this.dir, `${safeId}.json`);
     writeFileSync(filePath, JSON.stringify(conversation, null, 2));
   }
 
   /** Load a conversation */
   load(id: string): SavedConversation | null {
-    const filePath = join(this.dir, `${id}.json`);
+    const safeId = this.sanitizeId(id);
+    const filePath = join(this.dir, `${safeId}.json`);
     if (!existsSync(filePath)) return null;
     try {
       return JSON.parse(readFileSync(filePath, 'utf-8'));
@@ -59,7 +65,8 @@ export class ConversationStore {
 
   /** Delete a conversation */
   delete(id: string): boolean {
-    const filePath = join(this.dir, `${id}.json`);
+    const safeId = this.sanitizeId(id);
+    const filePath = join(this.dir, `${safeId}.json`);
     if (!existsSync(filePath)) return false;
     unlinkSync(filePath);
     return true;

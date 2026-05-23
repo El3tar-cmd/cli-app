@@ -14,11 +14,19 @@ export interface NovaConfig {
     temperature: number;
     topP: number;
     contextLength: number;
+    keepAliveSeconds?: number; // keep‑alive for Ollama cloud connections
+    autoUpdateModels?: boolean; // disable automatic pull of new model versions
+    compressionAlgorithm?: string;
+    security?: {
+      policyFile: string;
+    };
   };
   memory: {
     tokenBudget: number;
     compressionEnabled: boolean;
     compressionThreshold: number;
+    compressionAlgorithm?: string;
+    flushImmediately?: boolean;
     maxConversations: number;
   };
   ui: {
@@ -30,8 +38,13 @@ export interface NovaConfig {
   };
   tools: {
     autoApprove: string[];
+    notifyApprove?: string[];
+    confirmTimeout?: number;
     commandTimeout: number;
     maxFileSize: number;
+    maxConcurrentAgents?: number;
+    maxRetries?: number;
+    requestTimeoutMs?: number;
   };
   plugins: {
     enabled: boolean;
@@ -43,41 +56,64 @@ export interface NovaConfig {
   };
 }
 
-const DEFAULT_CONFIG: NovaConfig = {
-  ollama: {
-    url: OLLAMA_DEFAULT_URL,
-    model: OLLAMA_DEFAULT_MODEL,
-    temperature: 0.7,
-    topP: 0.9,
-    contextLength: 128000,
-  },
-  memory: {
-    tokenBudget: DEFAULT_TOKEN_BUDGET,
-    compressionEnabled: true,
-    compressionThreshold: 0.75,
-    maxConversations: 100,
-  },
-  ui: {
-    theme: 'cyberpunk',
-    showStatusBar: true,
-    showTokenCount: true,
-    streamingSpeed: 'instant',
-    showToolConfirmation: true,
-  },
-  tools: {
-    autoApprove: ['file_read', 'list_directory', 'code_search', 'git_status', 'project_analyze'],
-    commandTimeout: 30000,
-    maxFileSize: 1024 * 1024, // 1MB
-  },
-  plugins: {
-    enabled: true,
-    directory: join(getNovaDir(), 'plugins'),
-    autoLoad: true,
-  },
-  modes: {
-    default: 'chat',
-  },
-};
+  const DEFAULT_CONFIG: NovaConfig = {
+    ollama: {
+      url: OLLAMA_DEFAULT_URL,
+      model: OLLAMA_DEFAULT_MODEL,
+      temperature: 0.1,
+      topP: 0.9,
+      contextLength: 524288, // 512k tokens for enterprise-level context
+      keepAliveSeconds: 86400, // 24 hours default for enterprise projects
+      autoUpdateModels: false,
+      compressionAlgorithm: 'gzip', // enable gzip compression by default
+      security: {
+        policyFile: 'policies/policy.rego',
+      },
+    },
+    memory: {
+      tokenBudget: DEFAULT_TOKEN_BUDGET,
+      compressionEnabled: true, // enabled for enterprise context compression
+      compressionThreshold: 0.75,
+      compressionAlgorithm: 'gzip', // gzip compression algorithm
+      flushImmediately: true,
+      maxConversations: 100,
+    },
+    ui: {
+      theme: 'cyberpunk',
+      showStatusBar: true,
+      showTokenCount: true,
+      streamingSpeed: 'instant',
+      showToolConfirmation: true,
+    },
+    tools: {
+      autoApprove: [
+        'file_read', 'list_directory', 'code_search', 'git_status', 
+        'project_analyze', 'web_fetch', 'sequential_thinking', 
+        'update_state', 'recall_memory', 'browser_content', 
+        'browser_console', 'browser_screenshot', 'ollama_health', 'model_pull'
+      ],
+      notifyApprove: [
+        'file_write', 'file_edit', 'file_patch', 'file_multi_edit', 
+        'browser_navigate', 'browser_click', 'browser_type', 
+        'browser_eval', 'git_commit'
+      ],
+      confirmTimeout: 15000,
+      commandTimeout: 30000,
+      maxFileSize: 1024 * 1024, // 1MB
+      maxConcurrentAgents: 5,
+      maxRetries: 5,
+      requestTimeoutMs: 15000,
+    },
+    plugins: {
+      enabled: true,
+      directory: join(getNovaDir(), 'plugins'),
+      autoLoad: true,
+    },
+    modes: {
+      default: 'chat',
+    },
+  };
+
 
 export class ConfigManager {
   private config: NovaConfig;
@@ -96,7 +132,7 @@ export class ConfigManager {
         return this.merge(DEFAULT_CONFIG, saved);
       }
     } catch {}
-    return { ...DEFAULT_CONFIG };
+    return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
   }
 
   private merge(defaults: any, overrides: any): any {
@@ -150,7 +186,7 @@ export class ConfigManager {
   }
 
   reset(): void {
-    this.config = { ...DEFAULT_CONFIG };
+    this.config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
     this.save();
   }
 }

@@ -4,3 +4,9 @@ dist/
 .nova/
 nova-export-*
 plan-*
+.nova-state.json
+NOVA_GOAL_TRACKER.md
+.env
+.env.*
+web/dist/
+web/node_modules/

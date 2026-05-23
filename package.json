@@ -1,6 +1,6 @@
 {
   "name": "nova-cli",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "description": "🚀 NOVA — Next-gen Orchestrated Virtual Assistant. Enterprise AI coding assistant powered by Ollama.",
   "type": "module",
   "main": "dist/index.js",
@@ -8,7 +8,7 @@
     "nova": "./bin/nova.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"const{cpSync}=require('fs');cpSync('prompts','dist/prompts',{recursive:true})\"",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "nova": "node bin/nova.js",
@@ -27,13 +27,20 @@
   "author": "NOVA Team",
   "license": "MIT",
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/instrumentation-http": "^0.218.0",
+    "@opentelemetry/sdk-node": "^0.218.0",
+    "@opentelemetry/sdk-trace-base": "^2.7.1",
+    "@opentelemetry/sdk-trace-node": "^2.7.1",
     "better-sqlite3": "^11.6.0",
     "chalk": "^5.3.0",
     "chokidar": "^4.0.1",
     "cli-highlight": "^2.1.11",
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",
+    "cors": "^2.8.6",
     "diff": "^7.0.0",
+    "express": "^5.2.1",
     "fast-glob": "^3.3.2",
     "figures": "^6.1.0",
     "marked": "^14.1.0",
@@ -42,12 +49,17 @@
     "puppeteer-core": "^25.0.2",
     "string-width": "^7.2.0",
     "strip-ansi": "^7.1.0",
-    "wrap-ansi": "^9.0.0"
+    "telegraf": "^4.16.3",
+    "wrap-ansi": "^9.0.0",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.19",
     "@types/diff": "^6.0.0",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
     "rimraf": "^6.0.1",
     "typescript": "^5.7.0"
   },
