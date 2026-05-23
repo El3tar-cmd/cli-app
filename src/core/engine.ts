@@ -280,10 +280,10 @@ export class Engine extends EventEmitter {
     this.renderer.reset();
     this.stats.totalRequests++;
 
-    // Auto-compress context if usage exceeds 65% of budget
+    // Auto-compress context if usage exceeds 50% of budget (proactive, not reactive)
     const budget = this.config.get('ollama').contextLength || 128000;
     const ctxStats = this.context.getStats();
-    if (ctxStats.used > budget * 0.65) {
+    if (ctxStats.used > budget * 0.50) {
       this.writeOut(chalk.hex(theme.muted)(`  ⚡ Context at ${Math.round(ctxStats.used / budget * 100)}% — auto-compressing...`) + '\n');
       try {
         await this.compressContext();

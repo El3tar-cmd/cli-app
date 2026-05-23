@@ -1,6 +1,6 @@
 /**
- * 🌊 NOVA Stream Renderer — Real-time streaming markdown renderer
- * Renders markdown tokens as they arrive from the LLM stream
+ * 🌊 NOVA Stream Renderer v2 — Real-time streaming markdown renderer
+ * Clear visual separation: THINKING | RESPONDING | TOOL EXECUTION
  */
 
 import chalk from 'chalk';
@@ -13,8 +13,10 @@ interface RenderState {
   inBold: boolean;
   inItalic: boolean;
   inThinking: boolean;
+  thinkingLineCount: number;
   lineBuffer: string;
   fullContent: string;
+  responseStarted: boolean;
 }
 
 export class StreamRenderer {
@@ -34,8 +36,10 @@ export class StreamRenderer {
       inBold: false,
       inItalic: false,
       inThinking: false,
+      thinkingLineCount: 0,
       lineBuffer: '',
       fullContent: '',
+      responseStarted: false,
     };
   }
 
@@ -61,6 +65,8 @@ export class StreamRenderer {
     if (this.state.lineBuffer) {
       if (this.state.inCodeBlock) {
         this.output.write(chalk.hex(getTheme().textDim)(this.state.lineBuffer));
+      } else if (this.state.inThinking) {
+        this.output.write(chalk.hex(getTheme().muted).dim.italic(this.state.lineBuffer));
       } else {
         this.output.write(this.renderInline(this.state.lineBuffer));
       }
@@ -83,6 +89,15 @@ export class StreamRenderer {
       this.output.write('\n' + chalk.hex(getTheme().border)('  └' + '─'.repeat(40)) + '\n');
       this.state.inCodeBlock = false;
     }
+
+    // Close unclosed thinking block
+    if (this.state.inThinking) {
+      const theme = getTheme();
+      this.output.write(
+        '\n' + chalk.hex(theme.border)('  └' + '─'.repeat(46)) + '\n'
+      );
+      this.state.inThinking = false;
+    }
   }
 
   /** Get the full rendered content */
@@ -93,33 +108,70 @@ export class StreamRenderer {
   private processLine(line: string): void {
     const theme = getTheme();
 
-    // Thinking block toggle
+    // ── Thinking block: open ──────────────────────────────────────────
     if (line.trim() === '<think>' || line.trim().startsWith('<think>')) {
       this.state.inThinking = true;
-      this.output.write(chalk.hex(theme.muted).dim('  🧠 Thinking...'));
-      return;
-    }
-    if (line.trim() === '</think>' || line.trim().endsWith('</think>')) {
-      this.state.inThinking = false;
-      this.output.write(chalk.hex(theme.muted).dim('  ✔ Done thinking'));
-      return;
-    }
-    if (this.state.inThinking) {
-      // Render thinking lines dimmed/italic
-      this.output.write(chalk.hex(theme.muted).dim.italic('  │ ' + line));
+      this.state.thinkingLineCount = 0;
+      // Draw a distinct "THINKING" section header
+      this.output.write(
+        '\n' +
+        chalk.hex(theme.border)('  ┌') +
+        chalk.bgHex('#1a1a2e').hex('#7c6af7').bold(' 🧠 THINKING ') +
+        chalk.hex(theme.border)('─'.repeat(35)) + '\n'
+      );
       return;
     }
 
-    // Code block toggle
+    // ── Thinking block: close ─────────────────────────────────────────
+    if (line.trim() === '</think>' || line.trim().endsWith('</think>')) {
+      this.state.inThinking = false;
+      this.output.write(
+        chalk.hex(theme.border)('  └') +
+        chalk.hex('#7c6af7').dim(` ── ${this.state.thinkingLineCount} lines processed `) +
+        chalk.hex(theme.border)('─'.repeat(Math.max(0, 20 - String(this.state.thinkingLineCount).length))) + '\n'
+      );
+      // Show RESPONSE header when transitioning from thinking to response
+      if (!this.state.responseStarted) {
+        this.state.responseStarted = true;
+        this.output.write(
+          '\n' +
+          chalk.hex(theme.border)('  ┌') +
+          chalk.bgHex('#0d1f2d').hex('#38bdf8').bold(' ✦ RESPONSE ') +
+          chalk.hex(theme.border)('─'.repeat(36)) + '\n'
+        );
+      }
+      return;
+    }
+
+    // ── Inside thinking block ─────────────────────────────────────────
+    if (this.state.inThinking) {
+      this.state.thinkingLineCount++;
+      // Skip empty lines to keep thinking section compact
+      if (!line.trim()) return;
+      this.output.write(
+        chalk.hex(theme.border)('  │ ') +
+        chalk.hex('#7c6af7').dim.italic(line)
+      );
+      return;
+    }
+
+    // Mark response started if this is first content without thinking block
+    if (!this.state.responseStarted && line.trim()) {
+      this.state.responseStarted = true;
+    }
+
+    // ── Code block: open ──────────────────────────────────────────────
     if (line.trimStart().startsWith('```')) {
       if (!this.state.inCodeBlock) {
         this.state.inCodeBlock = true;
         this.state.codeBlockLang = line.trim().slice(3).trim();
         const langLabel = this.state.codeBlockLang || 'code';
+        const pad = Math.max(0, 34 - langLabel.length);
         this.output.write(
-          chalk.hex(theme.border)('  ┌' + '─'.repeat(4)) +
-          chalk.hex(theme.accent).bold(` ${langLabel} `) +
-          chalk.hex(theme.border)('─'.repeat(Math.max(0, 34 - langLabel.length)))
+          '\n' +
+          chalk.hex(theme.border)('  ┌') +
+          chalk.bgHex('#0d1117').hex(theme.accent).bold(` ${langLabel} `) +
+          chalk.hex(theme.border)('─'.repeat(pad))
         );
         return;
       } else {
@@ -130,7 +182,7 @@ export class StreamRenderer {
       }
     }
 
-    // Inside code block
+    // ── Inside code block ─────────────────────────────────────────────
     if (this.state.inCodeBlock) {
       this.output.write(
         chalk.hex(theme.border)('  │ ') +
@@ -139,7 +191,7 @@ export class StreamRenderer {
       return;
     }
 
-    // Headers
+    // ── Markdown: Headers ─────────────────────────────────────────────
     if (line.startsWith('### ')) {
       this.output.write('   ' + chalk.hex(theme.accent).bold(line.slice(4)));
       return;
@@ -153,13 +205,13 @@ export class StreamRenderer {
       return;
     }
 
-    // Horizontal rule
+    // ── Horizontal rule ───────────────────────────────────────────────
     if (/^[-*_]{3,}$/.test(line.trim())) {
-      this.output.write(chalk.hex(theme.border)('─'.repeat(50)));
+      this.output.write(chalk.hex(theme.border)('  ' + '─'.repeat(50)));
       return;
     }
 
-    // Bullet points
+    // ── Bullet points ─────────────────────────────────────────────────
     if (/^\s*[-*+]\s/.test(line)) {
       const indent = line.match(/^\s*/)?.[0] || '';
       const content = line.replace(/^\s*[-*+]\s/, '');
@@ -169,7 +221,7 @@ export class StreamRenderer {
       return;
     }
 
-    // Numbered lists
+    // ── Numbered lists ────────────────────────────────────────────────
     if (/^\s*\d+\.\s/.test(line)) {
       const match = line.match(/^(\s*)(\d+)\.\s(.*)$/);
       if (match) {
@@ -180,7 +232,7 @@ export class StreamRenderer {
       }
     }
 
-    // Blockquote
+    // ── Blockquote ────────────────────────────────────────────────────
     if (line.startsWith('> ')) {
       this.output.write(
         chalk.hex(theme.border)('  ┃ ') +
@@ -189,7 +241,7 @@ export class StreamRenderer {
       return;
     }
 
-    // Regular text
+    // ── Regular text ──────────────────────────────────────────────────
     this.output.write('  ' + this.renderInline(line));
   }
 
@@ -198,17 +250,11 @@ export class StreamRenderer {
     const theme = getTheme();
 
     return text
-      // Inline code
       .replace(/`([^`]+)`/g, (_, code) => chalk.hex(theme.accent).bgHex('#1A1A2E')(` ${code} `))
-      // Bold + italic
       .replace(/\*\*\*(.+?)\*\*\*/g, (_, t) => chalk.hex(theme.text).bold.italic(t))
-      // Bold
       .replace(/\*\*(.+?)\*\*/g, (_, t) => chalk.hex(theme.text).bold(t))
-      // Italic
       .replace(/\*(.+?)\*/g, (_, t) => chalk.hex(theme.text).italic(t))
-      // Strikethrough
       .replace(/~~(.+?)~~/g, (_, t) => chalk.strikethrough(t))
-      // Links
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) =>
         chalk.hex(theme.info).underline(label) + chalk.hex(theme.muted)(` (${url})`)
       );
@@ -218,7 +264,6 @@ export class StreamRenderer {
   renderFull(markdown: string): string {
     const lines = markdown.split('\n');
     const output: string[] = [];
-
     let inCode = false;
     let codeLang = '';
 
@@ -239,21 +284,17 @@ export class StreamRenderer {
         }
         continue;
       }
-
       if (inCode) {
         output.push(chalk.hex(getTheme().border)('  │ ') + chalk.hex(getTheme().text)(line));
         continue;
       }
-
       output.push(this.renderLineToString(line));
     }
-
     return output.join('\n');
   }
 
   private renderLineToString(line: string): string {
     const theme = getTheme();
-
     if (line.startsWith('# ')) return gradient('━━━ ' + line.slice(2) + ' ━━━');
     if (line.startsWith('## ')) return '  ' + gradient(line.slice(3));
     if (line.startsWith('### ')) return '   ' + chalk.hex(theme.accent).bold(line.slice(4));

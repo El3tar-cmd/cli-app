@@ -293,7 +293,7 @@ export class TelegramBotService {
           currentTask: 'Analyzing project and planning implementation',
           nextSteps: ['Define requirements', 'Create implementation plan', 'Execute changes', 'Verify changes']
         });
-	// Switch mode to agent mode
+        // Switch mode to agent mode
         this.engine.setMode('agent');
 
         await ctx.reply(
@@ -675,6 +675,7 @@ export class TelegramBotService {
     let isProcessing = true;
     let lastEditTime = 0;
     let editPending = false;
+    let confirmationActive = false; // Pause token buffer updates during confirmation
 
     // ── Throttled Update Engine (Avoids Telegram Rate Limits) ─────────
     const updateTelegramMessage = async (force = false) => {
@@ -741,7 +742,7 @@ export class TelegramBotService {
       const toolsConfig = (this.engine as any).config?.get('tools') || {};
       const autoApprove = toolsConfig.autoApprove || [];
       const notifyApprove = toolsConfig.notifyApprove || [];
-      const confirmTimeout = toolsConfig.confirmTimeout || 15000;
+      const confirmTimeout = toolsConfig.confirmTimeout || 90000; // 90s default (was 15s)
 
       // Tier 1: Silent Auto-Approve (safe read-only tools)
       if (autoApprove.includes(toolName)) {
@@ -772,7 +773,34 @@ export class TelegramBotService {
       );
 
       return new Promise<boolean>((resolve) => {
+        // ── Countdown ticker — updates message every 15s ──────────────
+        const timeoutSec = Math.round(confirmTimeout / 1000);
+        let remainingSec = timeoutSec;
+        const countdownInterval = setInterval(async () => {
+          remainingSec -= 15;
+          if (remainingSec <= 0) {
+            clearInterval(countdownInterval);
+            return;
+          }
+          try {
+            await ctx.telegram.editMessageText(
+              ctx.chat.id,
+              confirmMsg.message_id,
+              undefined,
+              `⚠️ **Requires Approval:**\n\`${toolName}\`\n\`\`\`\n${args.slice(0, 400)}${args.length > 400 ? '...' : ''}\n\`\`\`\n\n⏳ *Auto-approving in ${remainingSec} seconds...*`,
+              {
+                parse_mode: 'Markdown',
+                ...Markup.inlineKeyboard([
+                  Markup.button.callback('✅ Approve', `approve:${confirmId}`),
+                  Markup.button.callback('❌ Reject', `reject:${confirmId}`),
+                ])
+              } as any
+            );
+          } catch { /* message may have been deleted/answered */ }
+        }, 15000);
+
         const autoTimer = setTimeout(async () => {
+          clearInterval(countdownInterval);
           this.activeConfirmations.delete(confirmId);
           try {
             await ctx.telegram.editMessageText(
@@ -787,6 +815,7 @@ export class TelegramBotService {
 
         this.activeConfirmations.set(confirmId, (approved: boolean) => {
           clearTimeout(autoTimer);
+          clearInterval(countdownInterval);
           resolve(approved);
         });
       });
@@ -794,6 +823,7 @@ export class TelegramBotService {
 
     // ── Listen to Engine Streaming Events ─────────────────────────────
     const onToken = (token: string) => {
+      if (confirmationActive) return; // Pause buffer during confirmation dialog
       responseBuffer += token;
       editPending = true;
     };

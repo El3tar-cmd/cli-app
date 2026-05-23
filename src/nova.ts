@@ -3,7 +3,7 @@
  * Full-featured CLI with auto-model detection, plugins, planning mode, project analysis
  */
 
-import * as readline from 'node:readline';
+import * as readline from 'node:readline'; // kept for completer type reference
 import { writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,7 @@ import { logger } from './utils/logger.js';
 import { APP_NAME, APP_VERSION } from './utils/constants.js';
 import { sleep, formatDuration, getNovaSubDir, generateId } from './utils/helpers.js';
 import { McpClient } from './core/mcp-client.js';
+import { InputBar } from './ui/input-bar.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -60,6 +61,8 @@ export class Nova {
   private processing = false;
   private messageQueue: string[] = [];
   private mcpClient: McpClient;
+  private stopCurrentSpinner: (() => void) | null = null;
+  private inputBar!: InputBar;
 
   constructor(options: NovaOptions = {}) {
     this.options = options;
@@ -308,18 +311,30 @@ export class Nova {
     return [[], line];
   }
 
-  /** Start the REPL loop */
+  /** Start the REPL loop — powered by InputBar (fixed bottom input line) */
   private async startRepl(): Promise<void> {
-    this.rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: true,
-      historySize: 500,
-      completer: (line: string) => this.completer(line),
+    // ── Initialise the bottom input bar ─────────────────────────────
+    this.inputBar = new InputBar();
+    this.inputBar.start();
+    this.showPrompt();   // sets initial status
+
+    // ── Ctrl+C / abort ───────────────────────────────────────────────
+    this.inputBar.on('abort', () => {
+      const theme = getTheme();
+      this.engine.abort();
+      this.processing = false;
+      if (this.messageQueue.length > 0) {
+        const next = this.messageQueue.shift()!;
+        process.stdout.write(chalk.hex(theme.warning)(`\n  ${ICONS.warning} Interrupted → processing queued message\n`));
+        this.processInput(next);
+      } else {
+        process.stdout.write(chalk.hex(theme.warning)(`\n  ${ICONS.warning} Aborted\n`));
+        this.inputBar.stopProcessing();
+        this.showPrompt();
+      }
     });
 
-    // Handle Ctrl+C
-    this.rl.on('SIGINT', () => {
+    this.inputBar.on('sigint', () => {
       if (this.inMultiline) {
         this.inMultiline = false;
         this.multilineBuffer = [];
@@ -327,34 +342,23 @@ export class Nova {
         this.showPrompt();
         return;
       }
-      if (this.processing) {
-        this.engine.abort();
-        this.processing = false;
-        if (this.messageQueue.length > 0) {
-          const next = this.messageQueue.shift()!;
-          process.stdout.write('\n' + chalk.hex(getTheme().warning)(`  ${ICONS.warning} Skipped → processing queued message`) + '\n');
-          this.processInput(next);
-        } else {
-          process.stdout.write('\n' + chalk.hex(getTheme().warning)(`  ${ICONS.warning} Interrupted`) + '\n');
-          this.showPrompt();
-        }
-        return;
-      }
       process.stdout.write('\n' + chalk.hex(getTheme().warning)(`  ${ICONS.warning} Interrupted`) + '\n');
       this.showPrompt();
     });
 
-    this.showPrompt();
+    this.inputBar.on('eof', () => { this.shutdown(); });
 
-    for await (const line of this.rl) {
+    // ── Main input loop ──────────────────────────────────────────────
+    while (this.running) {
+      const line  = await this.inputBar.waitForLine();
       const input = line.trim();
 
-      // Multi-line mode
+      // ── Multi-line mode (type """ to open/close block) ───────────
       if (input === '"""' && !this.inMultiline) {
         this.inMultiline = true;
         this.multilineBuffer = [];
-        process.stdout.write(chalk.hex(getTheme().muted)('  Entering multi-line mode (type """ to submit):\n'));
-        process.stdout.write(chalk.hex(getTheme().border)('  │ '));
+        process.stdout.write(chalk.hex(getTheme().muted)('  Multi-line mode — type """ to submit\n'));
+        this.showPrompt();
         continue;
       }
 
@@ -363,13 +367,7 @@ export class Nova {
           this.inMultiline = false;
           const fullInput = this.multilineBuffer.join('\n');
           this.multilineBuffer = [];
-          if (fullInput.trim()) {
-            try { await this.engine.processMessage(fullInput); } catch (err: any) {
-              process.stdout.write(chalk.hex(getTheme().error)(`\n  ${ICONS.error} ${err.message}\n`));
-            }
-            this.showContextStatus();
-          }
-          this.showPrompt();
+          if (fullInput.trim()) await this.processInput(fullInput);
         } else {
           this.multilineBuffer.push(line);
           process.stdout.write(chalk.hex(getTheme().border)('  │ '));
@@ -377,17 +375,14 @@ export class Nova {
         continue;
       }
 
-      if (!input) {
-        this.showPrompt();
-        continue;
-      }
+      if (!input) { this.showPrompt(); continue; }
 
-      // Queue messages if AI is still processing
+      // ── Queue if AI is still processing ──────────────────────────
       if (this.processing) {
         this.messageQueue.push(input);
         process.stdout.write(
-          chalk.hex(getTheme().accent)(`\n  ${ICONS.info} Queued: "${input.slice(0, 50)}${input.length > 50 ? '...' : ''}"`) +
-          chalk.hex(getTheme().muted)(` (${this.messageQueue.length} in queue — Ctrl+C to skip current)`) + '\n'
+          chalk.hex(getTheme().accent)(`  ${ICONS.info} Queued [${this.messageQueue.length}]: "${input.slice(0, 45)}${input.length > 45 ? '…' : ''}"\n`) +
+          chalk.hex(getTheme().muted)(`  Ctrl+C to abort current task\n`)
         );
         continue;
       }
@@ -400,10 +395,10 @@ export class Nova {
   private async processInput(input: string): Promise<void> {
       // Command picker: user typed just "/"
       if (input === '/') {
-        this.rl.pause();
+        this.inputBar.suspend();
         const picker = new CommandPicker(CommandPicker.getNovaCommands());
         const selected = await picker.show();
-        this.rl.resume();
+        this.inputBar.resume();
         if (selected) {
           if (selected.startsWith('/plan ') || selected === '/plan') {
             process.stdout.write(chalk.hex(getTheme().muted)(`  → ${selected}\n`));
@@ -440,32 +435,53 @@ export class Nova {
         return;
       }
 
-      // Process with AI
+      // Process with AI — InputBar shows spinner in fixed bottom row
       this.processing = true;
-      const spinner = ICONS.spinner as string[];
-      let spinIdx = 0;
-      const spinTimer = setInterval(() => {
-        process.stdout.write(`\r  ${chalk.hex(getTheme().primary)(spinner[spinIdx++ % spinner.length])} ${chalk.hex(getTheme().muted)('Processing...')}`);
-      }, 80);
+      const theme = getTheme();
+
+      // InputBar takes over: shows spinner, absorbs keystrokes
+      this.inputBar.startProcessing();
+
+      // Expose stopSpinner for the confirm handler (called from inside engine)
+      this.stopCurrentSpinner = () => this.inputBar.stopSpinner();
+
+      // Watchdog: alert if stuck for 60+ seconds with no tokens
+      let lastTokenAt = Date.now();
+      const onAnyToken = () => { lastTokenAt = Date.now(); };
+      this.engine.on('token', onAnyToken);
+      const watchdog = setInterval(() => {
+        const silenceMs = Date.now() - lastTokenAt;
+        if (silenceMs > 60000) {
+          clearInterval(watchdog);
+          process.stdout.write(
+            chalk.hex(theme.warning)(`  ⚠  No response for ${Math.round(silenceMs/1000)}s — model may be stuck.`) +
+            chalk.hex(theme.muted)(` Ctrl+C to abort.\n`)
+          );
+        }
+      }, 5000);
+
       const startTime = Date.now();
       try {
         await this.engine.processMessage(input);
       } catch (err: any) {
-        process.stdout.write(chalk.hex(getTheme().error)(`\n  ${ICONS.error} ${err.message}\n`));
+        process.stdout.write(chalk.hex(theme.error)(`\n  ${ICONS.error} ${err.message}\n`));
+      } finally {
+        clearInterval(watchdog);
+        this.engine.off('token', onAnyToken);
+        this.stopCurrentSpinner = null;
+        this.inputBar.stopProcessing();
       }
-      clearInterval(spinTimer);
+
       this.processing = false;
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      process.stdout.write(`\n  ${chalk.hex(getTheme().success)('✔ Done')} ${chalk.hex(getTheme().muted)(`(${elapsed}s)`)}\n`);
+      process.stdout.write(`  ${chalk.hex(theme.success)('✔ Done')} ${chalk.hex(theme.muted)(`(${elapsed}s)`)}\n`);
 
       this.showContextStatus();
 
       // Process queued messages
       if (this.messageQueue.length > 0) {
         const next = this.messageQueue.shift()!;
-        process.stdout.write(
-          chalk.hex(getTheme().accent)(`\n  ${ICONS.lightning} Processing queued: "${next.slice(0, 50)}"`) + '\n'
-        );
+        process.stdout.write(chalk.hex(theme.accent)(`  ${ICONS.lightning} Queued next: "${next.slice(0, 50)}"\n`));
         await this.processInput(next);
         return;
       }
@@ -512,64 +528,50 @@ Be specific about file paths, code changes, and commands to run.`;
     this.engine.setMode(prevMode);
   }
 
-  /** Show the input prompt — uses readline setPrompt for correct backspace handling */
+  /** Update the InputBar status line with current mode / ctx info */
   private showPrompt(): void {
-    const mode = this.engine.getMode();
+    const mode  = this.engine.getMode();
+    const model = this.engine.getModel().split(':')[0]; // short model name
+    const stats = this.engine.getContext().getStats();
+    const pct   = stats.percentage;
+    const theme = getTheme();
+
     const modeIcons: Record<string, string> = {
       chat: '💬', fast: '⚡', plan: '📋', code: '💻', agent: '🤖',
     };
-    const modeIcon = modeIcons[mode] || '❯';
-    const shortCwd = basename(this.cwd) || this.cwd;
+    const modeLabel = `${modeIcons[mode] || '❯'} ${mode}`;
+    const ctxColor  = pct > 75 ? theme.error : pct > 45 ? theme.warning : theme.muted;
+    const ctxLabel  = chalk.hex(ctxColor)(`ctx ${pct}%`);
+    const modelLabel = chalk.hex(theme.accent)(model);
+    const dirLabel   = chalk.hex(theme.muted)(basename(this.cwd) || '.');
 
-    process.stdout.write('\n');
-
-    const plainPrompt = `  ${modeIcon} [${mode}] ${shortCwd} > `;
-    this.rl.setPrompt(plainPrompt);
-    this.rl.prompt();
+    this.inputBar?.setStatus(`${modelLabel}  ${modeLabel}  ${ctxLabel}  ${dirLabel}`);
   }
 
 
 
-  /** Show context usage mini-bar */
+  /** Update context status in InputBar status line */
   private showContextStatus(): void {
     const theme = getTheme();
     const stats = this.engine.getContext().getStats();
     if (stats.messages > 0) {
-      const pct = stats.percentage;
-      const color = pct > 80 ? theme.error : pct > 50 ? theme.warning : theme.muted;
+      const pct   = stats.percentage;
+      const color = pct > 80 ? theme.error : pct > 50 ? theme.warning : theme.success;
       process.stdout.write(
-        chalk.hex(color)(`\n  ctx: ${TokenCounter.format(stats.used)}/${TokenCounter.format(stats.budget)} (${pct}%)`)
+        chalk.hex(color)(`  ctx ${TokenCounter.format(stats.used)}/${TokenCounter.format(stats.budget)} (${pct}%)`) +
+        (pct > 75 ? chalk.hex(theme.warning)('  — try /compress') : '') +
+        '\n'
       );
-      if (pct > 75) {
-        process.stdout.write(chalk.hex(theme.warning)(` — /compress to save tokens`));
-      }
     }
+    this.showPrompt(); // refresh status bar
   }
 
-  /** Confirm dialog */
-  private confirm(message: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      const theme = getTheme();
-      process.stdout.write(chalk.hex(theme.warning)(`\n  ${ICONS.warning} ${message} `) + chalk.hex(theme.muted)('[Y/n] '));
-      const handler = (key: Buffer) => {
-        const char = key.toString().toLowerCase();
-        process.stdin.removeListener('data', handler);
-        process.stdin.setRawMode?.(false);
-        if (char === 'y' || char === '\r' || char === '\n') {
-          process.stdout.write(chalk.hex(theme.success)('Yes\n'));
-          resolve(true);
-        } else {
-          process.stdout.write(chalk.hex(theme.error)('No\n'));
-          resolve(false);
-        }
-      };
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode?.(true);
-        process.stdin.once('data', handler);
-      } else {
-        resolve(true);
-      }
-    });
+  /** Confirm dialog — delegates to InputBar bottom-row confirm widget */
+  private async confirm(message: string): Promise<boolean> {
+    // InputBar shows the confirm prompt in the fixed bottom row
+    return this.inputBar.waitForConfirm(
+      message.length > 60 ? message.slice(0, 60) + '…' : message
+    );
   }
 
   /** Graceful shutdown */
@@ -603,7 +605,7 @@ Be specific about file paths, code changes, and commands to run.`;
     }
 
     process.stdout.write('\n' + gradient('  ✨ Until next time. NOVA signing off.') + '\n\n');
-    this.rl?.close();
+    this.inputBar?.stop();
     this.mcpClient.cleanup();
     process.exit(0);
   }
