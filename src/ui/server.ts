@@ -21,7 +21,7 @@ export class NovaStudioServer {
 
   constructor(private engine: Engine, private port: number = 3141) {
     this.server = createServer(this.app);
-    this.wss = new WebSocketServer({ server: this.server });
+    this.wss = new WebSocketServer({ server: this.server, path: '/ws-nova' });
 
     this.setupMiddleware();
     this.setupRoutes();

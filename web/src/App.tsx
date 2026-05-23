@@ -304,10 +304,9 @@ function Markdown({ text }: { text: string }) {
 }
 
 export default function App() {
-  const host = window.location.hostname || 'localhost';
-  const port = window.location.port || '3141';
-  const API_BASE = `http://${host}:${port}`;
-  const WS_BASE = `ws://${host}:${port}`;
+  const API_BASE = '';
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const WS_BASE = `${wsProtocol}//${window.location.host}/ws-nova`;
 
   // Auth Token retrieval and persistence
   const urlParams = new URLSearchParams(window.location.search);
