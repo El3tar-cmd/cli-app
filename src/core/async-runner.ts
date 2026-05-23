@@ -553,3 +553,57 @@ export class AsyncRunner extends EventEmitter {
     }
   }
 }
+
+// ─── Output Summarization ─────────────────────────────────────────────
+
+export interface SummarizedOutput {
+  summary: string;
+  full: string;
+  truncated: boolean;
+  totalLines: number;
+  hiddenLines: number;
+}
+
+/**
+ * Summarize long command output for compact display.
+ *
+ * Returns first `headLines` + last `tailLines` lines with a
+ * "··· N lines hidden ···" separator. Used by the CLI to show
+ * collapsible terminal output blocks without flooding the context.
+ *
+ * @param output    Raw stdout/stderr string
+ * @param headLines Lines to keep from the top (default 4)
+ * @param tailLines Lines to keep from the bottom (default 4)
+ */
+export function summarizeOutput(
+  output: string,
+  headLines: number = 4,
+  tailLines: number = 4
+): SummarizedOutput {
+  const allLines = output.split('\n');
+  const nonEmptyLines = allLines.filter(l => l.trim().length > 0);
+  const totalLines = nonEmptyLines.length;
+  const threshold = headLines + tailLines + 2;
+
+  if (totalLines <= threshold) {
+    return { summary: output, full: output, truncated: false, totalLines, hiddenLines: 0 };
+  }
+
+  const head = nonEmptyLines.slice(0, headLines).join('\n');
+  const tail = nonEmptyLines.slice(-tailLines).join('\n');
+  const hiddenLines = totalLines - headLines - tailLines;
+
+  const summary =
+    `${head}\n` +
+    `\n  ·· ${hiddenLines} lines hidden — full output available ··\n\n` +
+    `${tail}`;
+
+  return { summary, full: output, truncated: true, totalLines, hiddenLines };
+}
+
+/**
+ * Strip ANSI escape codes from a string (for clean display / storage).
+ */
+export function stripAnsi(str: string): string {
+  return str.replace(/\x1B\[[0-9;]*[mGKHF]/g, '').replace(/\r/g, '');
+}

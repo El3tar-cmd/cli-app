@@ -56,6 +56,15 @@ interface SubagentInfo {
   timestamp: Date;
 }
 
+interface AgentTimelineEntry {
+  id: string;
+  type: 'tool_start' | 'tool_end' | 'subagent' | 'skills' | 'parallel_batch' | 'message';
+  label: string;
+  timestamp: Date;
+  status: 'running' | 'success' | 'failed' | 'info';
+  metadata?: Record<string, unknown>;
+}
+
 interface TerminalLog {
   text: string;
   type: 'info' | 'success' | 'error' | 'command' | 'output';
@@ -374,12 +383,43 @@ export default function App() {
   const [vulnerabilityReport, setVulnerabilityReport] = useState<string>('');
   const [activeAgentRole, setActiveAgentRole] = useState<'architect' | 'developer' | 'auditor' | 'idle'>('idle');
 
+  // Live metrics
+  const [activeSkills, setActiveSkills] = useState<string[]>([]);
+  const [sessionStartTime] = useState(() => Date.now());
+  const [sessionDuration, setSessionDuration] = useState(0);
+  const [totalTokenChars, setTotalTokenChars] = useState(0);
+  const [agentTimeline, setAgentTimeline] = useState<AgentTimelineEntry[]>([]);
+  const [parallelBatchActive, setParallelBatchActive] = useState(false);
+  const [parallelBatchCount, setParallelBatchCount] = useState(0);
+  const [parallelTaskInputs, setParallelTaskInputs] = useState(['', '']);
+  const [expandedTimelineIds, setExpandedTimelineIds] = useState<Set<string>>(new Set());
+
   const ws = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Sync scroll on line-number editor
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
+
+  const addTimeline = (entry: Omit<AgentTimelineEntry, 'id' | 'timestamp'>) => {
+    const id = `tl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setAgentTimeline(prev => [...prev.slice(-80), { ...entry, id, timestamp: new Date() }]);
+  };
+
+  const formatDuration = (secs: number): string => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  };
+
+  const estimateTokens = (chars: number): string => {
+    const tokens = Math.round(chars / 4);
+    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+    return `${tokens}`;
+  };
 
   useEffect(() => {
     fetchInfo();
@@ -406,9 +446,9 @@ export default function App() {
       } else if (msg.type === 'token') {
         setIsAgentThinking(true);
         setCurrentStream((prev) => prev + msg.data);
+        setTotalTokenChars(prev => prev + (msg.data?.length || 0));
       } else if (msg.type === 'tool_start') {
         setIsAgentThinking(true);
-        // Deduce active agent role based on tool name
         const toolName = msg.data.name;
         if (['file_read', 'git_status', 'code_search', 'project_analyze'].includes(toolName)) {
           setActiveAgentRole('architect');
@@ -419,7 +459,8 @@ export default function App() {
         }
 
         addLog(`Executing: ${toolName} args: ${JSON.stringify(msg.data.args)}`, 'command');
-        
+        addTimeline({ type: 'tool_start', label: `▸ ${toolName}`, status: 'running', metadata: { args: msg.data.args } });
+
         setMessages((prev) => [
           ...prev,
           ...(currentStream ? [{ role: 'assistant', content: currentStream }] : []),
@@ -434,12 +475,12 @@ export default function App() {
       } else if (msg.type === 'tool_end') {
         setIsAgentThinking(false);
         setActiveAgentRole('idle');
-        
+
         addLog(`Tool response [${msg.data.name}] -> success=${msg.data.success}`, msg.data.success ? 'success' : 'error');
         if (msg.data.output) addLog(msg.data.output, 'output');
         if (msg.data.error) addLog(msg.data.error, 'error');
+        addTimeline({ type: 'tool_end', label: `${msg.data.success ? '✓' : '✗'} ${msg.data.name}`, status: msg.data.success ? 'success' : 'failed' });
 
-        // Capture special reports
         if (msg.data.name === 'security_scanner' && msg.data.output) {
           setVulnerabilityReport(msg.data.output);
         }
@@ -456,7 +497,12 @@ export default function App() {
           }
         ]);
       } else if (msg.type === 'subagent_spawned') {
-        addLog(`[Sub-Agent Spawned] Task: ${msg.data.task} | Sandbox: ${msg.data.sandbox}`, 'info');
+        const isParallel = msg.data.parallel === true;
+        const label = isParallel
+          ? `🤖 Parallel-${(msg.data.agentIndex ?? 0) + 1}/${msg.data.totalAgents ?? '?'}: ${(msg.data.task || '').slice(0, 55)}`
+          : `🤖 Sub-Agent: ${(msg.data.task || '').slice(0, 55)}`;
+        addLog(`[Sub-Agent Spawned] ${label} | Sandbox: ${msg.data.sandbox}`, 'info');
+        addTimeline({ type: 'subagent', label, status: 'running' });
         setSubagents(prev => [
           ...prev,
           {
@@ -468,13 +514,28 @@ export default function App() {
           }
         ]);
       } else if (msg.type === 'subagent_completed') {
-        addLog(`[Sub-Agent Finished] Success: ${msg.data.success} | Changes: ${msg.data.changes}`, msg.data.success ? 'success' : 'error');
-        setSubagents(prev => prev.map(sa => 
+        addLog(`[Sub-Agent] Success: ${msg.data.success} | Changes: ${msg.data.changes}`, msg.data.success ? 'success' : 'error');
+        setSubagents(prev => prev.map(sa =>
           sa.task === msg.data.task ? { ...sa, status: msg.data.success ? 'completed' : 'failed', changes: msg.data.changes } : sa
         ));
       } else if (msg.type === 'skills_activated') {
-        const skillsList = msg.data.skills?.join(', ') || 'None';
-        addLog(`[Skills Activated] ${skillsList}`, 'info');
+        const skills: string[] = msg.data.skills || [];
+        setActiveSkills(skills);
+        addLog(`[Skills] ${skills.join(', ') || 'none'}`, 'info');
+        if (skills.length > 0) {
+          addTimeline({ type: 'skills', label: `Skills: ${skills.slice(0, 3).join(', ')}${skills.length > 3 ? ` +${skills.length - 3}` : ''}`, status: 'info' });
+        }
+      } else if (msg.type === 'parallel_batch_start') {
+        setParallelBatchActive(true);
+        setParallelBatchCount(msg.data.count);
+        addLog(`[Parallel Batch] Launching ${msg.data.count} agents...`, 'info');
+        addTimeline({ type: 'parallel_batch', label: `🚀 Parallel batch: ${msg.data.count} agents`, status: 'running' });
+      } else if (msg.type === 'parallel_batch_end') {
+        setParallelBatchActive(false);
+        const ok = msg.data.successCount ?? 0;
+        const total = msg.data.count ?? 0;
+        addLog(`[Parallel Batch] ${ok}/${total} succeeded, ${msg.data.totalChanges ?? 0} files changed`, ok > 0 ? 'success' : 'error');
+        addTimeline({ type: 'parallel_batch', label: `✅ Batch done: ${ok}/${total} OK, ${msg.data.totalChanges ?? 0} changes`, status: ok > 0 ? 'success' : 'failed' });
       }
     };
 
@@ -517,6 +578,13 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeTab, rightActiveTab, isSplitWorkspace, selectedFile, editorContent, isModified]);
+
+  // Live session clock
+  useEffect(() => {
+    const t = setInterval(() => setSessionDuration(Math.floor((Date.now() - sessionStartTime) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [sessionStartTime]);
+
   const fetchInfo = async () => {
     try {
       const res = await authedFetch(`${API_BASE}/api/info`);
@@ -1025,43 +1093,96 @@ export default function App() {
             </div>
           </div>
 
-          {/* Sub-agents activity timeline */}
+          {/* Parallel Batch Live Status */}
+          {parallelBatchActive && (
+            <div className="p-5 rounded-2xl bg-indigo-500/5 border border-indigo-500/30 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-indigo-300 flex items-center">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping mr-2" />
+                  Parallel Batch Active — {parallelBatchCount} Agents Running
+                </h3>
+                <span className="text-[9px] font-mono text-indigo-400/60 uppercase tracking-wider">Processing...</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                {subagents.filter(sa => sa.status === 'running').map((sa, i) => (
+                  <div key={i} className="flex items-center space-x-3 bg-indigo-500/5 border border-indigo-500/15 rounded-xl p-2.5">
+                    <div className="flex space-x-0.5 shrink-0">
+                      {[0, 1, 2].map(j => (
+                        <div key={j} className="w-0.5 h-3 bg-indigo-500/50 rounded-full animate-bounce" style={{ animationDelay: `${j * 120}ms` }} />
+                      ))}
+                    </div>
+                    <span className="text-[10px] font-mono text-indigo-200 flex-1 truncate">{sa.task}</span>
+                    <span className="text-[9px] text-indigo-400/60 font-mono shrink-0 tabular-nums">
+                      {Math.round((Date.now() - sa.timestamp.getTime()) / 1000)}s
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Sub-Agent Orchestration Tree */}
           <div className="p-5 rounded-2xl bg-[#10121d] border border-white/5 space-y-4">
-            <h3 className="text-xs font-bold text-gray-300 flex items-center">
-              <GitBranch className="w-3.5 h-3.5 mr-2 text-indigo-400" />
-              Sub-Agent Hierarchy & Orchestration Tree
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-gray-300 flex items-center">
+                <GitBranch className="w-3.5 h-3.5 mr-2 text-indigo-400" />
+                Sub-Agent Hierarchy & Orchestration Tree
+              </h3>
+              {subagents.length > 0 && (
+                <div className="flex items-center space-x-2 text-[9px] font-mono">
+                  <span className="text-emerald-400">{subagents.filter(s => s.status === 'completed').length} done</span>
+                  <span className="text-gray-600">·</span>
+                  <span className="text-amber-400">{subagents.filter(s => s.status === 'running').length} running</span>
+                  <span className="text-gray-600">·</span>
+                  <span className="text-red-400">{subagents.filter(s => s.status === 'failed').length} failed</span>
+                </div>
+              )}
+            </div>
 
             {subagents.length === 0 ? (
               <p className="text-[11px] text-gray-500 font-mono">No sub-agent subprocesses spawned in this session.</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {subagents.map((sa, idx) => (
-                  <div key={idx} className="flex items-start justify-between border-b border-white/5 pb-2.5 text-xs">
-                    <div className="flex items-start space-x-2">
-                      <div className="mt-0.5 px-1.5 py-0.5 bg-indigo-500/10 border border-indigo-500/25 text-[9px] rounded font-mono text-indigo-400 shrink-0">
-                        Level {sa.depth}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-gray-200">{sa.task}</div>
-                        <div className="text-[10px] text-gray-500 flex items-center space-x-2 mt-0.5">
+                  <div
+                    key={idx}
+                    className={`flex items-start justify-between rounded-xl px-3 py-2.5 text-xs border transition-all duration-300 ${
+                      sa.status === 'running' ? 'bg-blue-500/5 border-blue-500/20' :
+                      sa.status === 'completed' ? 'bg-emerald-500/5 border-emerald-500/15' :
+                      'bg-red-500/5 border-red-500/15'
+                    }`}
+                  >
+                    <div className="flex items-start space-x-2.5 flex-1 min-w-0">
+                      <div className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${
+                        sa.status === 'running' ? 'bg-blue-400 animate-pulse' :
+                        sa.status === 'completed' ? 'bg-emerald-400' : 'bg-red-400'
+                      }`} />
+                      <div className="min-w-0">
+                        <div className="font-semibold text-gray-200 truncate">{sa.task}</div>
+                        <div className="text-[9px] text-gray-500 flex items-center space-x-2 mt-0.5 font-mono">
                           <span>{sa.timestamp.toLocaleTimeString()}</span>
-                          <span>•</span>
-                          <span>{sa.sandbox ? 'Sandboxed Environment' : 'Direct Workspace'}</span>
+                          <span>·</span>
+                          <span className={`px-1 py-0 rounded ${sa.sandbox ? 'text-purple-400' : 'text-gray-500'}`}>
+                            {sa.sandbox ? 'sandboxed' : 'direct'}
+                          </span>
+                          <span>·</span>
+                          <span>depth {sa.depth}</span>
                         </div>
                       </div>
                     </div>
-                    <div className="shrink-0 flex items-center space-x-2">
+                    <div className="shrink-0 flex items-center space-x-2 ml-2">
+                      {sa.changes !== undefined && sa.changes > 0 && (
+                        <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                          +{sa.changes} files
+                        </span>
+                      )}
                       <span className={`px-2 py-0.5 text-[9px] font-mono font-bold rounded border ${
-                        sa.status === 'running' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400 animate-pulse' :
-                        sa.status === 'completed' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
+                        sa.status === 'running'   ? 'bg-blue-500/10 border-blue-500/20 text-blue-300 animate-pulse' :
+                        sa.status === 'completed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' :
                         'bg-red-500/10 border-red-500/20 text-red-400'
                       }`}>
-                        {sa.status.toUpperCase()}
+                        {sa.status === 'running' ? 'RUNNING' : sa.status === 'completed' ? 'DONE' : 'FAILED'}
                       </span>
-                      {sa.changes !== undefined && sa.changes > 0 && (
-                        <span className="text-[10px] font-mono text-gray-400">+{sa.changes} files</span>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -1187,6 +1308,91 @@ export default function App() {
             </div>
           </div>
 
+          {/* Parallel Sub-Agent Orchestration Panel */}
+          <div className="p-4 rounded-2xl bg-[#0e0f1a]/80 border border-indigo-500/15 flex flex-col space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="w-6 h-6 rounded-lg bg-indigo-500/15 flex items-center justify-center border border-indigo-500/20">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                </div>
+                <span className="text-xs font-bold text-gray-200">Parallel Sub-Agent Launcher</span>
+              </div>
+              {parallelBatchActive && (
+                <span className="px-2 py-0.5 text-[9px] font-mono font-bold rounded border bg-indigo-500/10 border-indigo-500/30 text-indigo-400 animate-pulse">
+                  RUNNING {parallelBatchCount} AGENTS
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] text-gray-400 leading-relaxed">
+              Spawn multiple independent agents to work simultaneously on parallel tasks. Each agent runs in its own isolated sandbox and all results are merged after completion.
+            </p>
+
+            {/* Task Inputs */}
+            <div className="space-y-2">
+              {parallelTaskInputs.map((val, idx) => (
+                <div key={idx} className="flex items-center space-x-2">
+                  <span className="w-5 h-5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-[9px] font-mono text-indigo-400 flex items-center justify-center shrink-0 font-bold">
+                    {idx + 1}
+                  </span>
+                  <input
+                    type="text"
+                    placeholder={`Task ${idx + 1}: e.g. "Write unit tests for auth module"`}
+                    value={val}
+                    onChange={(e) => {
+                      const updated = [...parallelTaskInputs];
+                      updated[idx] = e.target.value;
+                      setParallelTaskInputs(updated);
+                    }}
+                    className="flex-1 bg-black/40 border border-white/10 focus:border-indigo-500/40 rounded-lg px-2.5 py-1.5 text-[10px] text-gray-300 placeholder-gray-600 focus:outline-none font-mono"
+                  />
+                  {parallelTaskInputs.length > 2 && (
+                    <button
+                      onClick={() => setParallelTaskInputs(prev => prev.filter((_, i) => i !== idx))}
+                      className="text-gray-600 hover:text-red-400 transition text-[10px] shrink-0"
+                    >✕</button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setParallelTaskInputs(prev => [...prev, ''])}
+                disabled={parallelTaskInputs.length >= 6}
+                className="flex-1 py-1.5 text-[10px] font-bold border border-white/10 hover:border-indigo-500/30 rounded-lg text-gray-400 hover:text-indigo-300 transition disabled:opacity-30"
+              >
+                + Add Task
+              </button>
+              <button
+                disabled={parallelBatchActive || parallelTaskInputs.filter(t => t.trim()).length < 2}
+                onClick={() => {
+                  const tasks = parallelTaskInputs.filter(t => t.trim()).map(task => ({ message: task }));
+                  if (tasks.length < 2) return;
+                  const taskStr = parallelTaskInputs.filter(t => t.trim()).map(t => `"${t}"`).join(', ');
+                  executeCommand(`/parallel ${taskStr}`);
+                }}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-white/5 disabled:text-white/20 text-white font-bold text-[10px] py-1.5 rounded-lg transition active:scale-95 flex items-center justify-center space-x-1.5"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>{parallelBatchActive ? 'Running...' : `Launch ${parallelTaskInputs.filter(t => t.trim()).length} Parallel`}</span>
+              </button>
+            </div>
+
+            {/* Parallel batch live status */}
+            {subagents.filter(sa => sa.status === 'running').length > 0 && (
+              <div className="space-y-1.5 pt-1 border-t border-white/5">
+                <div className="text-[9px] uppercase tracking-wider text-gray-500 font-bold">Active Agents</div>
+                {subagents.filter(sa => sa.status === 'running').map((sa, i) => (
+                  <div key={i} className="flex items-center space-x-2 text-[10px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse shrink-0" />
+                    <span className="flex-1 font-mono text-indigo-200 truncate">{sa.task.slice(0, 60)}</span>
+                    <span className="text-[9px] text-indigo-400/60 font-mono shrink-0">running</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Vulnerability scan results window */}
           {vulnerabilityReport && (
             <div className="p-4 rounded-2xl bg-amber-950/10 border border-amber-500/20 space-y-2">
@@ -1246,6 +1452,25 @@ export default function App() {
             </div>
           )}
           
+          {/* Active Skills Live Badges */}
+          {activeSkills.length > 0 && (
+            <div className="flex items-center space-x-1 ml-3 shrink-0 max-w-xs overflow-hidden">
+              {activeSkills.slice(0, 4).map((skill, i) => (
+                <span
+                  key={i}
+                  className="px-1.5 py-0.5 text-[8px] font-mono font-bold rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 shrink-0 whitespace-nowrap"
+                >
+                  {skill}
+                </span>
+              ))}
+              {activeSkills.length > 4 && (
+                <span className="px-1.5 py-0.5 text-[8px] font-mono rounded bg-white/5 border border-white/10 text-gray-500 shrink-0">
+                  +{activeSkills.length - 4}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Tab Navigation */}
           <div className="flex bg-[#0b0d19] rounded-xl p-1 ml-6 border border-white/10 shrink-0 select-none">
             <button
@@ -1421,61 +1646,158 @@ export default function App() {
                 </h3>
               </div>
 
-              {/* Gauges & Variables */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-5 scrollbar-thin select-text">
-                {/* Token Budget Gauge */}
-                <div className="p-3.5 rounded-2xl bg-[#121420]/60 border border-white/5 space-y-2.5">
-                  <div className="text-[9px] uppercase tracking-wider text-gray-500 font-bold select-none">Context Window</div>
-                  
-                  {systemStats.stats?.totalRequests !== undefined || true ? (
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between text-[10px] font-mono">
-                        <span className="text-gray-400">Memory usage</span>
-                        <span className="text-indigo-400 font-bold">4.2k / 32k</span>
-                      </div>
-                      {/* Visual Progress Bar */}
-                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full" style={{ width: '13%' }} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-[10px] text-gray-600">Awaiting sync...</div>
-                  )}
-                </div>
+              {/* Live Metrics Panel */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin select-text">
 
-                {/* Session Statistics */}
-                <div className="p-3.5 rounded-2xl bg-[#121420]/60 border border-white/5 space-y-2 select-none">
-                  <div className="text-[9px] uppercase tracking-wider text-gray-500 font-bold">Session Analytics</div>
-                  <div className="space-y-1.5 font-mono text-[10px] text-gray-400">
-                    <div className="flex justify-between">
-                      <span>Total Requests</span>
-                      <span className="text-white">{systemStats.stats?.totalRequests || 0}</span>
+                {/* Session Live Stats */}
+                <div className="p-3.5 rounded-2xl bg-[#121420]/60 border border-white/5 space-y-3">
+                  <div className="text-[9px] uppercase tracking-wider text-gray-500 font-bold select-none flex items-center">
+                    <Activity className="w-3 h-3 mr-1.5 text-indigo-400" />
+                    Session Live Stats
+                  </div>
+                  <div className="space-y-2 font-mono text-[10px]">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">Duration</span>
+                      <span className="text-emerald-400 font-bold tabular-nums">{formatDuration(sessionDuration)}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Tokens Output</span>
-                      <span className="text-white">12,481</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">Tokens out (est.)</span>
+                      <span className="text-indigo-400 font-bold tabular-nums">{estimateTokens(totalTokenChars)}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Tool Calls</span>
-                      <span className="text-white">8</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">API Requests</span>
+                      <span className="text-white font-bold tabular-nums">{systemStats.stats?.totalRequests || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">Tool Calls</span>
+                      <span className="text-white tabular-nums">{agentTimeline.filter(e => e.type === 'tool_end').length}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">Sub-Agents</span>
+                      <span className="text-purple-400 tabular-nums">{subagents.length}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* System shortcuts list */}
+                {/* Context Window Gauge */}
+                <div className="p-3.5 rounded-2xl bg-[#121420]/60 border border-white/5 space-y-2.5">
+                  <div className="text-[9px] uppercase tracking-wider text-gray-500 font-bold select-none">Context Window</div>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[10px] font-mono">
+                      <span className="text-gray-400">Estimated usage</span>
+                      <span className={`font-bold ${
+                        totalTokenChars / 4 > 20000 ? 'text-amber-400' :
+                        totalTokenChars / 4 > 10000 ? 'text-yellow-400' : 'text-indigo-400'
+                      }`}>
+                        {estimateTokens(totalTokenChars)} / 32k
+                      </span>
+                    </div>
+                    <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${
+                          totalTokenChars / 4 > 20000 ? 'bg-gradient-to-r from-amber-500 to-red-500' :
+                          'bg-gradient-to-r from-blue-500 to-indigo-500'
+                        }`}
+                        style={{ width: `${Math.max(1, Math.min(100, (totalTokenChars / 4 / 32000) * 100))}%` }}
+                      />
+                    </div>
+                    <div className="text-[9px] text-gray-600 font-mono">
+                      {totalTokenChars > 0 ? `${((totalTokenChars / 4 / 32000) * 100).toFixed(1)}% used` : 'No tokens yet'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Active Skills */}
+                <div className="p-3.5 rounded-2xl bg-[#121420]/60 border border-white/5 space-y-2.5">
+                  <div className="text-[9px] uppercase tracking-wider text-gray-500 font-bold select-none flex items-center">
+                    <Sparkles className="w-3 h-3 mr-1.5 text-cyan-400" />
+                    Active Skills
+                  </div>
+                  {activeSkills.length === 0 ? (
+                    <div className="text-[10px] text-gray-600 font-mono italic">Awaiting skill activation...</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {activeSkills.map((skill, i) => (
+                        <span key={i} className="px-2 py-0.5 text-[9px] font-mono font-bold rounded-md bg-cyan-500/10 border border-cyan-500/25 text-cyan-300 select-none">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Parallel Batch Live Indicator */}
+                {parallelBatchActive && (
+                  <div className="p-3 rounded-2xl bg-indigo-500/5 border border-indigo-500/40 space-y-2">
+                    <div className="text-[9px] uppercase tracking-wider text-indigo-400 font-bold select-none flex items-center">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping mr-1.5" />
+                      Parallel Batch Running
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="flex space-x-0.5">
+                        {Array.from({ length: Math.min(parallelBatchCount, 8) }).map((_, i) => (
+                          <div
+                            key={i}
+                            className="w-1 h-4 bg-indigo-500/60 rounded-full animate-bounce"
+                            style={{ animationDelay: `${i * 90}ms` }}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-[10px] font-mono text-indigo-300">{parallelBatchCount} agents active</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Agent Activity Timeline */}
+                <div className="space-y-2">
+                  <div className="text-[9px] uppercase tracking-wider text-gray-500 font-bold select-none flex items-center justify-between">
+                    <span className="flex items-center">
+                      <GitBranch className="w-3 h-3 mr-1.5 text-purple-400" />
+                      Activity Timeline
+                    </span>
+                    {agentTimeline.length > 0 && (
+                      <button onClick={() => setAgentTimeline([])} className="text-[8px] text-gray-600 hover:text-red-400 transition font-mono uppercase">clear</button>
+                    )}
+                  </div>
+                  {agentTimeline.length === 0 ? (
+                    <div className="text-[10px] text-gray-600 font-mono italic">No activity yet...</div>
+                  ) : (
+                    <div className="space-y-1 max-h-52 overflow-y-auto scrollbar-thin pr-1">
+                      {[...agentTimeline].reverse().slice(0, 20).map((entry) => (
+                        <div key={entry.id} className="flex items-start space-x-2 text-[9px] font-mono">
+                          <span className={`mt-1 shrink-0 w-1.5 h-1.5 rounded-full ${
+                            entry.status === 'running'  ? 'bg-amber-400 animate-pulse' :
+                            entry.status === 'success'  ? 'bg-emerald-400' :
+                            entry.status === 'failed'   ? 'bg-red-400' : 'bg-blue-400'
+                          }`} />
+                          <span className={`flex-1 leading-tight truncate ${
+                            entry.status === 'success' ? 'text-emerald-300/80' :
+                            entry.status === 'failed'  ? 'text-red-400/80' :
+                            entry.status === 'running' ? 'text-amber-300/80' : 'text-gray-400'
+                          }`}>{entry.label}</span>
+                          <span className="text-gray-700 shrink-0 tabular-nums">
+                            {entry.timestamp.toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Quick CLI Actions */}
                 <div className="space-y-2 select-none">
-                  <div className="text-[9px] uppercase tracking-wider text-gray-500 font-bold">CLI Shortcut Actions</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => executeCommand('/clear')} className="py-2 px-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 text-[10px] font-semibold text-center transition">
+                  <div className="text-[9px] uppercase tracking-wider text-gray-500 font-bold">Quick Actions</div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button onClick={() => executeCommand('/clear')} className="py-2 px-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 text-[10px] font-semibold text-center transition">
                       Clear Chat
                     </button>
-                    <button onClick={() => executeCommand('/compress')} className="py-2 px-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 text-[10px] font-semibold text-center transition">
+                    <button onClick={() => executeCommand('/compress')} className="py-2 px-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 text-[10px] font-semibold text-center transition">
                       Compress
                     </button>
-                    <button onClick={() => executeCommand('/project')} className="py-2 px-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 text-[10px] font-semibold text-center transition">
+                    <button onClick={() => executeCommand('/project')} className="py-2 px-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 text-[10px] font-semibold text-center transition">
                       Index Repo
                     </button>
-                    <button onClick={() => executeCommand('/tools')} className="py-2 px-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 text-[10px] font-semibold text-center transition">
+                    <button onClick={() => executeCommand('/tools')} className="py-2 px-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 text-[10px] font-semibold text-center transition">
                       List Tools
                     </button>
                   </div>

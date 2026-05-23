@@ -186,4 +186,155 @@ export function registerSubagentTools(
       }
     },
   });
+
+  // ─── Parallel Task Delegation ─────────────────────────────────────────
+  registry.register({
+    name: 'delegate_parallel_tasks',
+    description: 'Spawn multiple independent Sub-Agents simultaneously and run them in parallel. Significantly faster than sequential delegation for unrelated tasks. Each agent gets its own sandbox and clean context. All results are collected and returned after all agents complete.',
+    category: 'system',
+    requiresConfirmation: true,
+    parameters: {
+      tasks: 'array',
+    },
+    handler: async (args): Promise<{ success: boolean; output: string; error?: string }> => {
+      if (depth >= MAX_AGENT_DEPTH) {
+        return { success: false, output: '', error: `Maximum sub-agent nesting depth (${MAX_AGENT_DEPTH}) reached.` };
+      }
+
+      const taskList = args.tasks as Array<{ task: string; focusFiles?: string[]; sandbox?: boolean }>;
+      if (!Array.isArray(taskList) || taskList.length === 0) {
+        return { success: false, output: '', error: '`tasks` must be a non-empty array of { task, focusFiles?, sandbox? } objects.' };
+      }
+
+      process.stdout.write(chalk.hex(getTheme().primary).bold(`\n  🚀 Spawning ${taskList.length} Sub-Agents in parallel...\n`));
+      masterEngine.emit('parallel_batch_start', { count: taskList.length, tasks: taskList.map(t => t.task) });
+
+      const runSingleTask = async (
+        taskDef: { task: string; focusFiles?: string[]; sandbox?: boolean },
+        idx: number
+      ): Promise<{
+        agentIndex: number;
+        task: string;
+        success: boolean;
+        result: string;
+        changesSummary: string;
+        numChanges: number;
+        error?: string;
+      }> => {
+        let sandboxManager: SandboxManager | null = null;
+        try {
+          const useSandbox = taskDef.sandbox !== false;
+          const focusFiles = taskDef.focusFiles || [];
+          let workspacePath = cwd;
+          const subTools = new ToolRegistry();
+
+          if (useSandbox) {
+            sandboxManager = new SandboxManager(cwd);
+            sandboxManager.init(focusFiles);
+            workspacePath = sandboxManager.getPath();
+            registerBuiltinTools(subTools, workspacePath);
+            registerBrowserTools(subTools, workspacePath);
+            registerSubagentTools(subTools, workspacePath, config, promptsDir, masterEngine, depth + 1);
+          } else {
+            registerBuiltinTools(subTools, cwd);
+            registerBrowserTools(subTools, cwd);
+            registerSubagentTools(subTools, cwd, config, promptsDir, masterEngine, depth + 1);
+          }
+
+          const subEngine = new Engine(config, subTools, promptsDir, workspacePath, { silent: true });
+          subEngine.setMode('agent');
+
+          const onToken = (token: string) => masterEngine.emit('token', token);
+          const onToolStart = (data: any) => masterEngine.emit('tool_start', {
+            ...data, name: `🤖 [Parallel-${idx + 1}] ${data.name}`
+          });
+          const onToolEnd = (data: any) => masterEngine.emit('tool_end', {
+            ...data, name: `🤖 [Parallel-${idx + 1}] ${data.name}`
+          });
+
+          subEngine.on('token', onToken);
+          subEngine.on('tool_start', onToolStart);
+          subEngine.on('tool_end', onToolEnd);
+
+          masterEngine.emit('subagent_spawned', {
+            task: taskDef.task,
+            depth,
+            sandbox: useSandbox,
+            parallel: true,
+            agentIndex: idx,
+            totalAgents: taskList.length,
+          });
+
+          let result = '';
+          try {
+            let prompt = `You are Sub-Agent #${idx + 1} of ${taskList.length} running in parallel.\n`;
+            prompt += `Your specific task: ${taskDef.task}\n`;
+            if (focusFiles.length > 0) prompt += `Focus on these files: ${focusFiles.join(', ')}\n`;
+            prompt += `When done, summarize your exact changes and results concisely so the Master Agent can consolidate all parallel results.`;
+            result = await subEngine.processMessage(prompt);
+          } finally {
+            subEngine.off('token', onToken);
+            subEngine.off('tool_start', onToolStart);
+            subEngine.off('tool_end', onToolEnd);
+          }
+
+          let changesSummary = '';
+          let numChanges = 0;
+          if (useSandbox && sandboxManager) {
+            const changes = sandboxManager.compareChanges();
+            numChanges = changes.length;
+            for (const change of changes) {
+              const realDest = join(cwd, change.path);
+              const realDir = dirname(realDest);
+              if (change.type === 'NEW' || change.type === 'MODIFY') {
+                if (!existsSync(realDir)) mkdirSync(realDir, { recursive: true });
+                writeFileSync(realDest, change.content || '', 'utf-8');
+              } else if (change.type === 'DELETE') {
+                if (existsSync(realDest)) rmSync(realDest, { force: true });
+              }
+              changesSummary += `   - [${change.type}] ${change.path}\n`;
+            }
+            sandboxManager.destroy();
+          }
+
+          masterEngine.emit('subagent_completed', { task: taskDef.task, success: true, changes: numChanges });
+          return { agentIndex: idx, task: taskDef.task, success: true, result, changesSummary, numChanges };
+        } catch (err: any) {
+          masterEngine.emit('subagent_completed', { task: taskDef.task, success: false, changes: 0 });
+          if (sandboxManager) { try { sandboxManager.destroy(); } catch {} }
+          return { agentIndex: idx, task: taskDef.task, success: false, result: '', changesSummary: '', numChanges: 0, error: err.message };
+        }
+      };
+
+      // Run all tasks in true parallel
+      const results = await Promise.all(taskList.map((t, i) => runSingleTask(t, i)));
+
+      const successCount = results.filter(r => r.success).length;
+      const totalChanges = results.reduce((sum, r) => sum + r.numChanges, 0);
+
+      masterEngine.emit('parallel_batch_end', {
+        count: taskList.length,
+        successCount,
+        totalChanges,
+        results: results.map(r => ({ task: r.task, success: r.success, changes: r.numChanges })),
+      });
+
+      process.stdout.write(
+        chalk.hex(getTheme().success)(
+          `\n  ✅ Parallel batch complete: ${successCount}/${taskList.length} agents succeeded, ${totalChanges} total file changes.\n`
+        )
+      );
+
+      const outputLines = results.map((r) => {
+        const badge = r.success ? '✅' : '❌';
+        const changes = r.numChanges > 0 ? `\n${r.changesSummary}` : '';
+        return `${badge} Agent-${r.agentIndex + 1}: ${r.task}\n${r.result}${changes}`;
+      });
+
+      return {
+        success: successCount > 0,
+        output: `Parallel Execution Results (${successCount}/${taskList.length} succeeded, ${totalChanges} files changed):\n\n${outputLines.join('\n\n---\n\n')}`,
+      };
+    },
+  });
 }
