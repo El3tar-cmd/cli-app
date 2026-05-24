@@ -2,118 +2,163 @@
 
 @layer base {
   body {
-    background-color: #020306;
-    color: #e2e8f0;
-    font-family: 'Outfit', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    background-color: #050507;
+    color: #ebebf5;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+      "Segoe UI", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background-image: 
-      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.05) 0px, transparent 50%),
-      radial-gradient(at 50% 0%, rgba(168, 85, 247, 0.03) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.05) 0px, transparent 50%);
-    background-attachment: fixed;
+    letter-spacing: -0.01em;
   }
-  
+
   ::selection {
-    background-color: rgba(99, 102, 241, 0.3);
+    background-color: rgba(0, 113, 227, 0.3);
     color: #ffffff;
   }
 
   code, pre, .font-mono {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+    font-family: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace !important;
   }
 }
 
-/* Cybernetic Scanlines/Grid Background Effect */
-.cyber-grid {
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-}
-
-/* Premium Scrollbars */
+/* ── Apple-style scrollbars ──────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 3px;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 3px;
-  transition: all 0.2s ease;
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.4);
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+  background: rgba(255, 255, 255, 0.18);
 }
 
-/* Glassmorphism Panels */
+/* ── Glass panels (Apple vibrancy feel) ──────────────────────────────── */
 .glass-panel {
-  background: rgba(8, 10, 20, 0.65);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-}
-.glass-panel-hover:hover {
-  border-color: rgba(99, 102, 241, 0.2);
-  box-shadow: 0 0 25px rgba(99, 102, 241, 0.08);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(28, 28, 30, 0.72);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-/* Interactive Glowing Badges */
+.glass-panel-hover:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(44, 44, 46, 0.72);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Apple semantic glow badges ──────────────────────────────────────── */
+.glow-blue {
+  box-shadow: 0 0 12px rgba(0, 113, 227, 0.2);
+}
+.glow-green {
+  box-shadow: 0 0 12px rgba(48, 209, 88, 0.2);
+}
 .glow-indigo {
-  box-shadow: 0 0 15px rgba(99, 102, 241, 0.25);
-  text-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 12px rgba(94, 92, 230, 0.2);
 }
 .glow-cyan {
-  box-shadow: 0 0 15px rgba(6, 182, 212, 0.25);
-  text-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
+  box-shadow: 0 0 12px rgba(100, 210, 255, 0.2);
 }
 .glow-purple {
-  box-shadow: 0 0 15px rgba(168, 85, 247, 0.25);
-  text-shadow: 0 0 8px rgba(168, 85, 247, 0.5);
+  box-shadow: 0 0 12px rgba(191, 90, 242, 0.2);
 }
 
-/* Futuristic Scanner Line Animation */
-@keyframes cyber-scan {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100%); }
-}
-.scanner-line {
-  position: absolute;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.5), transparent);
-  animation: cyber-scan 4s linear infinite;
-  pointer-events: none;
+/* ── No cyber grid — replaced with clean depth ───────────────────────── */
+.cyber-grid {
+  /* removed: was distracting */
 }
 
-/* Breathing agent thinking core */
+/* ── Breathing agent core ─────────────────────────────────────────────── */
 @keyframes core-breathe {
-  0%, 100% { transform: scale(1); opacity: 0.8; filter: drop-shadow(0 0 5px rgba(99, 102, 241, 0.6)); }
-  50% { transform: scale(1.1); opacity: 1; filter: drop-shadow(0 0 15px rgba(6, 182, 212, 0.9)); }
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.06); }
 }
 .agent-core-active {
-  animation: core-breathe 2.5s ease-in-out infinite;
+  animation: core-breathe 2.4s ease-in-out infinite;
 }
 
-/* Glowing text */
-.text-glow {
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.15);
+/* ── Subtle scanner (minimised, not retro) ───────────────────────────── */
+.scanner-line {
+  display: none; /* removed for Apple-clean aesthetic */
 }
 
-/* Retro terminal scan line overlay */
+/* ── Terminal glow: clean, no scan lines ─────────────────────────────── */
 .terminal-glow::before {
-  content: " ";
-  display: block;
-  position: absolute;
-  top: 0; left: 0; bottom: 0; right: 0;
-  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-  z-index: 2;
-  background-size: 100% 3px, 6px 100%;
-  pointer-events: none;
+  display: none;
+}
+
+/* ── Text glow: very subtle ──────────────────────────────────────────── */
+.text-glow {
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.08);
+}
+
+/* ── Apple-style focus ring ──────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid rgba(0, 113, 227, 0.6);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ── Smooth transitions everywhere ──────────────────────────────────────*/
+*, *::before, *::after {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Apple-style button press ────────────────────────────────────────── */
+button:active:not(:disabled) {
+  transform: scale(0.97);
+  transition: transform 0.08s ease;
+}
+
+/* ── Subtle depth shadows (Apple-style, not neon) ────────────────────── */
+.apple-shadow {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.apple-shadow-lg {
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.5),
+    0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Frosted header bar ──────────────────────────────────────────────── */
+.header-frosted {
+  background: rgba(10, 10, 12, 0.85);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ── Sidebar surface ─────────────────────────────────────────────────── */
+.sidebar-surface {
+  background: rgba(15, 15, 18, 0.95);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ── Card surface ────────────────────────────────────────────────────── */
+.card-surface {
+  background: rgba(28, 28, 30, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+}
+.card-surface:hover {
+  background: rgba(44, 44, 46, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Apple-style badge ───────────────────────────────────────────────── */
+.apple-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }

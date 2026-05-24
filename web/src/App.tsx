@@ -396,6 +396,8 @@ export default function App() {
 
   const ws = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Ref to avoid stale closure in WS handler — always holds latest stream
+  const currentStreamRef = useRef('');
 
   // Sync scroll on line-number editor
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -445,6 +447,7 @@ export default function App() {
         setState(msg.data);
       } else if (msg.type === 'token') {
         setIsAgentThinking(true);
+        currentStreamRef.current += (msg.data || '');
         setCurrentStream((prev) => prev + msg.data);
         setTotalTokenChars(prev => prev + (msg.data?.length || 0));
       } else if (msg.type === 'tool_start') {
@@ -461,9 +464,10 @@ export default function App() {
         addLog(`Executing: ${toolName} args: ${JSON.stringify(msg.data.args)}`, 'command');
         addTimeline({ type: 'tool_start', label: `▸ ${toolName}`, status: 'running', metadata: { args: msg.data.args } });
 
+        const snapStream = currentStreamRef.current;
         setMessages((prev) => [
           ...prev,
-          ...(currentStream ? [{ role: 'assistant', content: currentStream }] : []),
+          ...(snapStream ? [{ role: 'assistant', content: snapStream }] : []),
           {
             role: 'tool',
             content: `Executing: ${toolName}`,
@@ -471,6 +475,7 @@ export default function App() {
             toolArgs: msg.data.args
           }
         ]);
+        currentStreamRef.current = '';
         setCurrentStream('');
       } else if (msg.type === 'tool_end') {
         setIsAgentThinking(false);
@@ -540,7 +545,8 @@ export default function App() {
     };
 
     return () => socket.close();
-  }, [currentStream]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Scroll to bottom of chat
   useEffect(() => {
@@ -751,8 +757,9 @@ export default function App() {
   const sendMessage = async () => {
     if (!input.trim()) return;
 
-    if (currentStream) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: currentStream }]);
+    if (currentStreamRef.current) {
+      setMessages((prev) => [...prev, { role: 'assistant', content: currentStreamRef.current }]);
+      currentStreamRef.current = '';
       setCurrentStream('');
     }
 

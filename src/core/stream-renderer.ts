@@ -115,9 +115,9 @@ export class StreamRenderer {
       // Draw a distinct "THINKING" section header
       this.output.write(
         '\n' +
-        chalk.hex(theme.border)('  ┌') +
-        chalk.bgHex('#1a1a2e').hex('#7c6af7').bold(' 🧠 THINKING ') +
-        chalk.hex(theme.border)('─'.repeat(35)) + '\n'
+        chalk.hex(theme.border)('  ┌─') +
+        chalk.hex('#7c6af7').bold('▸ THINKING') +
+        chalk.hex(theme.border)('─'.repeat(37)) + '\n'
       );
       return;
     }
@@ -126,18 +126,18 @@ export class StreamRenderer {
     if (line.trim() === '</think>' || line.trim().endsWith('</think>')) {
       this.state.inThinking = false;
       this.output.write(
-        chalk.hex(theme.border)('  └') +
-        chalk.hex('#7c6af7').dim(` ── ${this.state.thinkingLineCount} lines processed `) +
-        chalk.hex(theme.border)('─'.repeat(Math.max(0, 20 - String(this.state.thinkingLineCount).length))) + '\n'
+        chalk.hex(theme.border)('  └─') +
+        chalk.hex('#7c6af7')(` ${this.state.thinkingLineCount} lines `) +
+        chalk.hex(theme.border)('─'.repeat(Math.max(0, 38 - String(this.state.thinkingLineCount).length))) + '\n'
       );
       // Show RESPONSE header when transitioning from thinking to response
       if (!this.state.responseStarted) {
         this.state.responseStarted = true;
         this.output.write(
           '\n' +
-          chalk.hex(theme.border)('  ┌') +
-          chalk.bgHex('#0d1f2d').hex('#38bdf8').bold(' ✦ RESPONSE ') +
-          chalk.hex(theme.border)('─'.repeat(36)) + '\n'
+          chalk.hex(theme.border)('  ┌─') +
+          chalk.hex('#38bdf8').bold('✦ RESPONSE') +
+          chalk.hex(theme.border)('─'.repeat(38)) + '\n'
         );
       }
       return;
@@ -150,7 +150,7 @@ export class StreamRenderer {
       if (!line.trim()) return;
       this.output.write(
         chalk.hex(theme.border)('  │ ') +
-        chalk.hex('#7c6af7').dim.italic(line)
+        chalk.hex('#9d88f5')(line)
       );
       return;
     }
@@ -250,7 +250,7 @@ export class StreamRenderer {
     const theme = getTheme();
 
     return text
-      .replace(/`([^`]+)`/g, (_, code) => chalk.hex(theme.accent).bgHex('#1A1A2E')(` ${code} `))
+      .replace(/`([^`]+)`/g, (_, code) => chalk.hex(theme.accent)(`\`${code}\``))
       .replace(/\*\*\*(.+?)\*\*\*/g, (_, t) => chalk.hex(theme.text).bold.italic(t))
       .replace(/\*\*(.+?)\*\*/g, (_, t) => chalk.hex(theme.text).bold(t))
       .replace(/\*(.+?)\*/g, (_, t) => chalk.hex(theme.text).italic(t))

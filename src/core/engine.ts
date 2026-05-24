@@ -297,7 +297,7 @@ export class Engine extends EventEmitter {
     // Determine if we should use tools
     const useTools = this.mode !== 'fast';
     const isAgent = this.mode === 'agent';
-    const maxIterations = isAgent ? 30 : 20; // Increased from 3 to 20 for regular modes
+    const maxIterations = isAgent ? 80 : 50; // High ceiling — agent needs many steps for complex tasks
 
     try {
       let iteration = 0;

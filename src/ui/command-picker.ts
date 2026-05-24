@@ -222,6 +222,7 @@ export class CommandPicker {
       { label: 'Export', value: 'export', description: 'Export conversation', icon: '📤' },
       { label: 'Theme', value: 'theme', description: 'Switch color theme', icon: '🎨' },
       { label: 'Config', value: 'config', description: 'View/set configuration', icon: '⚙️' },
+      { label: 'Map', value: 'map', description: 'Show project mental map', icon: '🗺️' },
       { label: 'Clear', value: 'clear', description: 'Clear conversation', icon: '🧹' },
       { label: 'Quit', value: 'quit', description: 'Exit NOVA', icon: '👋' },
     ];

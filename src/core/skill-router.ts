@@ -254,6 +254,23 @@ export class SkillRouter {
   }
 }
 
+// Add impeccable-design rule
+SKILL_RULES.push({
+  name: 'impeccable-design',
+  weight: 1.1,
+  keywords: [
+    'design', 'ui', 'ux', 'interface', 'component', 'layout', 'typography', 'color',
+    'spacing', 'animation', 'accessibility', 'wcag', 'contrast', 'visual', 'style',
+    'figma', 'mockup', 'wireframe', 'prototype', 'design system', 'token', 'palette',
+    'button', 'card', 'modal', 'form', 'input', 'nav', 'sidebar', 'header', 'footer',
+    'responsive', 'mobile', 'breakpoint', 'grid', 'flex', 'theme', 'dark mode',
+    'beautiful', 'elegant', 'clean', 'minimal', 'premium', 'polish', 'refine',
+    'apple', 'claude', 'linear', 'vercel', 'aesthetic', 'branding', 'logo',
+  ],
+  fileExtensions: ['.css', '.scss', '.less', '.svg', '.figma'],
+  filePatterns: ['design', 'styles', 'components', 'ui', 'theme', 'tokens', 'icons']
+});
+
 // Add data-science rule
 SKILL_RULES.push({
   name: 'data-science',

@@ -72,16 +72,29 @@ export class InputBar extends EventEmitter {
     this._drawBar();
   }
 
-  /** Temporarily release stdin (e.g. for command picker) */
+  /** Temporarily release stdin AND restore stdout (for command pickers) */
   suspend(): void {
     if (process.stdin.isTTY) {
       try { process.stdin.setRawMode(false); } catch {}
     }
     process.stdin.pause();
+    // Restore original stdout.write so pickers can render without intercept
+    (process.stdout as any).write = this.originalWrite;
+    // Reset scroll region so picker output appears naturally
+    this._raw('\x1b[r');
   }
 
-  /** Re-activate stdin after suspend() */
+  /** Re-activate stdin and re-intercept stdout after suspend() */
   resume(): void {
+    // Re-establish scroll region
+    this._setupScrollRegion();
+    // Re-intercept stdout
+    if (this.active) {
+      const self = this;
+      (process.stdout as any).write = function (chunk: any, enc?: any, cb?: any): boolean {
+        return self._interceptWrite(chunk, enc, cb);
+      };
+    }
     if (process.stdin.isTTY) {
       try { process.stdin.setRawMode(true); } catch {}
     }

@@ -30,6 +30,7 @@ import { APP_NAME, APP_VERSION } from './utils/constants.js';
 import { sleep, formatDuration, getNovaSubDir, generateId } from './utils/helpers.js';
 import { McpClient } from './core/mcp-client.js';
 import { InputBar } from './ui/input-bar.js';
+import { ProjectMap } from './core/project-map.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -63,6 +64,7 @@ export class Nova {
   private mcpClient: McpClient;
   private stopCurrentSpinner: (() => void) | null = null;
   private inputBar!: InputBar;
+  private projectMap!: ProjectMap;
 
   constructor(options: NovaOptions = {}) {
     this.options = options;
@@ -204,6 +206,19 @@ export class Nova {
       this.engine.getContext().addMessage({ role: 'system', content: kb }, true);
     }
 
+    // Initialize Project Mental Map (async — doesn't block startup)
+    this.projectMap = new ProjectMap(this.cwd);
+    this.projectMap.init().then(() => {
+      const snapshot = this.projectMap.snapshot();
+      if (snapshot) {
+        this.engine.getContext().addMessage({ role: 'system', content: `[Project Mental Map]\n${snapshot}` }, true);
+      }
+      process.stdout.write(
+        chalk.hex(getTheme().success)(`  📊 Project map ready`) +
+        chalk.hex(getTheme().muted)(` — auto-updating on file changes`) + '\n'
+      );
+    }).catch(() => {});
+
     // Show session info
     this.printSessionInfo();
 
@@ -302,7 +317,7 @@ export class Nova {
       '/chat', '/fast', '/code', '/agent',
       '/context', '/compress', '/tools', '/status', '/project',
       '/save', '/load', '/history', '/export', '/theme', '/config',
-      '/plan',
+      '/plan', '/map',
     ];
     if (line.startsWith('/')) {
       const hits = commands.filter(c => c.startsWith(line));
@@ -409,6 +424,23 @@ export class Nova {
             return;
           }
         }
+        this.showPrompt();
+        return;
+      }
+
+      // /map — show or rescan project mental map
+      if (input === '/map' || input === '/map rescan') {
+        const theme = getTheme();
+        if (input === '/map rescan') {
+          process.stdout.write(chalk.hex(theme.info)('  📊 Re-scanning project...\n'));
+          await this.projectMap.scan();
+        }
+        const snap = this.projectMap.snapshot();
+        process.stdout.write('\n' + chalk.hex(theme.primary).bold('  📊 Project Mental Map') + '\n\n');
+        for (const line of snap.split('\n')) {
+          process.stdout.write(chalk.hex(theme.textDim)('  ' + line) + '\n');
+        }
+        process.stdout.write('\n' + chalk.hex(theme.muted)('  Tip: /map rescan — force full re-scan\n') + '\n');
         this.showPrompt();
         return;
       }
