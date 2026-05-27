@@ -466,4 +466,23 @@ export const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'render_graphics',
+      description: 'Render visual diagrams (Mermaid.js), custom SVG markup, or HTML5 Canvas drawing scripts into high-quality PNG or SVG image files. Useful for generating flowcharts, system architectures, database schemas, and custom drawings.',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', enum: ['mermaid', 'svg', 'canvas'], description: 'Type of graphic to render' },
+          code: { type: 'string', description: 'The input markup code or JavaScript canvas script code' },
+          outputPath: { type: 'string', description: 'Destination path for the output image file (relative to workspace, e.g. "architecture.png" or "flowchart.svg")' },
+          width: { type: 'number', description: 'Viewport or canvas width (optional, default 800)' },
+          height: { type: 'number', description: 'Viewport or canvas height (optional, default 600)' },
+          backgroundColor: { type: 'string', description: 'Background color of the render (optional, default white)' },
+        },
+        required: ['type', 'code', 'outputPath'],
+      },
+    },
+  },
 ];

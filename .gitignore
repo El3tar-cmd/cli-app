@@ -10,3 +10,4 @@ NOVA_GOAL_TRACKER.md
 .env.*
 web/dist/
 web/node_modules/
+graphics-tests/

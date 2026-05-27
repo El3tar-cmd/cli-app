@@ -4,9 +4,8 @@
  */
 
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
-import { existsSync } from 'node:fs';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { ToolRegistry, type ToolResult } from './tool-registry.js';
 
 // Find Chrome/Edge on the system
@@ -472,6 +471,243 @@ export function registerBrowserTools(registry: ToolRegistry, cwd: string): void 
         };
       } catch (err: any) {
         return { success: false, output: '', error: `UI Inspection failed: ${err.message}` };
+      }
+    },
+  });
+
+  // ── render_graphics ─────────────────────────────
+  registry.register({
+    name: 'render_graphics',
+    description: 'Render visual diagrams (Mermaid.js), custom SVG markup, or HTML5 Canvas drawing scripts into high-quality PNG or SVG image files. Use for flowcharts, architecture diagrams, ER schemas, custom illustrations, and UI mock-ups.',
+    category: 'web',
+    requiresConfirmation: false,
+    parameters: {
+      type: 'string',
+      code: 'string',
+      outputPath: 'string',
+      width: 'number?',
+      height: 'number?',
+      backgroundColor: 'string?',
+    },
+    handler: async (args): Promise<ToolResult> => {
+      const renderType = (args.type as string || '').toLowerCase();
+      const code = args.code as string;
+      const outputRelPath = args.outputPath as string;
+      const width = (args.width as number) || 800;
+      const height = (args.height as number) || 600;
+      const bgColor = (args.backgroundColor as string) || '#ffffff';
+
+      if (!renderType || !code || !outputRelPath) {
+        return { success: false, output: '', error: 'Missing required parameters: type, code, outputPath' };
+      }
+
+      if (!['mermaid', 'svg', 'canvas'].includes(renderType)) {
+        return { success: false, output: '', error: `Invalid render type: "${renderType}". Must be one of: mermaid, svg, canvas` };
+      }
+
+      const outputPath = join(cwd, outputRelPath);
+      const outputDir = dirname(outputPath);
+      if (!existsSync(outputDir)) {
+        mkdirSync(outputDir, { recursive: true });
+      }
+
+      const isSvgOutput = outputRelPath.toLowerCase().endsWith('.svg');
+
+      // Use a dedicated ephemeral headless browser to avoid polluting the user's active session
+      const executablePath = findBrowser();
+      if (!executablePath) {
+        return { success: false, output: '', error: 'No Chrome/Edge found. Install Chrome or Edge to use render_graphics.' };
+      }
+
+      let renderBrowser: Browser | null = null;
+      try {
+        renderBrowser = await puppeteer.launch({
+          executablePath,
+          headless: true,
+          defaultViewport: { width, height },
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
+        });
+
+        const page = await renderBrowser.newPage();
+
+        // ── Mermaid.js Rendering ────────────────────────────
+        if (renderType === 'mermaid') {
+          const mermaidHtml = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: ${bgColor}; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  #container { padding: 24px; }
+</style>
+</head><body>
+<div id="container">
+  <pre class="mermaid">${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+</div>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, curve: 'basis' },
+    sequence: { actorMargin: 50, messageMargin: 40 },
+  });
+</script>
+</body></html>`;
+
+          await page.setContent(mermaidHtml, { waitUntil: 'load', timeout: 30000 });
+          // Wait for Mermaid to finish rendering SVG
+          await page.waitForSelector('.mermaid svg', { timeout: 15000 });
+          // Small extra delay for animations/transitions to settle
+          await new Promise(r => setTimeout(r, 500));
+
+          if (isSvgOutput) {
+            // Extract rendered SVG markup
+            const svgContent = await page.evaluate(() => {
+              const svg = document.querySelector('.mermaid svg');
+              if (!svg) return null;
+              // Ensure SVG has explicit dimensions
+              const bbox = (svg as SVGSVGElement).getBBox();
+              svg.setAttribute('width', String(Math.ceil(bbox.width + 40)));
+              svg.setAttribute('height', String(Math.ceil(bbox.height + 40)));
+              svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+              return svg.outerHTML;
+            });
+            if (!svgContent) {
+              return { success: false, output: '', error: 'Mermaid rendering produced no SVG output.' };
+            }
+            writeFileSync(outputPath, svgContent, 'utf-8');
+          } else {
+            // Capture PNG — clip to the actual diagram content for a tight crop
+            const boundingBox = await page.evaluate(() => {
+              const svg = document.querySelector('.mermaid svg');
+              if (!svg) return null;
+              const rect = svg.getBoundingClientRect();
+              return { x: Math.max(0, rect.x - 12), y: Math.max(0, rect.y - 12), width: rect.width + 24, height: rect.height + 24 };
+            });
+            if (boundingBox) {
+              await page.screenshot({ path: outputPath, clip: boundingBox, omitBackground: false });
+            } else {
+              await page.screenshot({ path: outputPath, fullPage: true, omitBackground: false });
+            }
+          }
+        }
+
+        // ── SVG Rendering ───────────────────────────────────
+        else if (renderType === 'svg') {
+          const svgHtml = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: ${bgColor}; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  #svg-container { padding: 16px; }
+</style>
+</head><body>
+<div id="svg-container">${code}</div>
+</body></html>`;
+
+          await page.setContent(svgHtml, { waitUntil: 'load', timeout: 15000 });
+          await new Promise(r => setTimeout(r, 300));
+
+          if (isSvgOutput) {
+            // Extract the SVG element with xmlns attribute
+            const svgContent = await page.evaluate(() => {
+              const svg = document.querySelector('#svg-container svg');
+              if (!svg) return null;
+              svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+              return svg.outerHTML;
+            });
+            if (!svgContent) {
+              // Fallback: the code itself is the SVG
+              writeFileSync(outputPath, code, 'utf-8');
+            } else {
+              writeFileSync(outputPath, svgContent, 'utf-8');
+            }
+          } else {
+            const boundingBox = await page.evaluate(() => {
+              const svg = document.querySelector('#svg-container svg');
+              if (!svg) return null;
+              const rect = svg.getBoundingClientRect();
+              return { x: Math.max(0, rect.x - 8), y: Math.max(0, rect.y - 8), width: rect.width + 16, height: rect.height + 16 };
+            });
+            if (boundingBox) {
+              await page.screenshot({ path: outputPath, clip: boundingBox, omitBackground: false });
+            } else {
+              await page.screenshot({ path: outputPath, fullPage: true, omitBackground: false });
+            }
+          }
+        }
+
+        // ── HTML5 Canvas Rendering ──────────────────────────
+        else if (renderType === 'canvas') {
+          const canvasHtml = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: ${bgColor}; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+</style>
+</head><body>
+<canvas id="canvas" width="${width}" height="${height}"></canvas>
+<script>
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  // Fill background
+  ctx.fillStyle = '${bgColor}';
+  ctx.fillRect(0, 0, ${width}, ${height});
+  // Execute user drawing code
+  try {
+    ${code}
+    window.__canvasReady = true;
+  } catch (e) {
+    window.__canvasError = e.message;
+    window.__canvasReady = true;
+  }
+</script>
+</body></html>`;
+
+          await page.setContent(canvasHtml, { waitUntil: 'load', timeout: 15000 });
+          // Wait for canvas rendering to complete
+          await page.waitForFunction(() => (window as any).__canvasReady === true, { timeout: 10000 });
+          await new Promise(r => setTimeout(r, 200));
+
+          // Check for canvas JS errors
+          const canvasError = await page.evaluate(() => (window as any).__canvasError);
+          if (canvasError) {
+            return { success: false, output: '', error: `Canvas script error: ${canvasError}` };
+          }
+
+          if (isSvgOutput) {
+            // Canvas cannot natively produce SVG — export as data URL and inform user
+            return { success: false, output: '', error: 'Canvas type cannot export to SVG. Use a .png extension for canvas rendering, or use the "svg" type for SVG output.' };
+          }
+
+          // Crop to the canvas element for a tight output
+          const canvasBounds = await page.evaluate(() => {
+            const c = document.getElementById('canvas');
+            if (!c) return null;
+            const rect = c.getBoundingClientRect();
+            return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+          });
+          if (canvasBounds) {
+            await page.screenshot({ path: outputPath, clip: canvasBounds, omitBackground: false });
+          } else {
+            await page.screenshot({ path: outputPath, fullPage: true, omitBackground: false });
+          }
+        }
+
+        return {
+          success: true,
+          output: `✔ Rendered ${renderType} graphic → ${outputRelPath} (${width}x${height})`,
+        };
+      } catch (err: any) {
+        return { success: false, output: '', error: `render_graphics failed: ${err.message}` };
+      } finally {
+        if (renderBrowser) {
+          try { await renderBrowser.close(); } catch {}
+        }
       }
     },
   });
