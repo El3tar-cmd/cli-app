@@ -12,6 +12,7 @@
 import chalk from 'chalk';
 import { EventEmitter } from 'events';
 import { getTheme } from './theme.js';
+import { applyArabicRendering } from '../utils/arabic.js';
 
 const SPIN  = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
 const MAX_H = 500; // history entries
@@ -283,7 +284,7 @@ export class InputBar extends EventEmitter {
       this._raw('\x1b[s');
       this._raw(`\x1b[${r};1H\x1b[2K`);
       this._raw('\x1b[u');
-      this._raw(text);
+      this._raw(applyArabicRendering(text));
       this._drawBar();
       if (cb) cb();
       return true;
@@ -294,7 +295,7 @@ export class InputBar extends EventEmitter {
     // redraw the input bar to restore the prompt and cursor.
     this._raw(`\x1b[${r};1H\x1b[2K`);   // clear bottom row first
     this._raw(`\x1b[${r - 1};1H`);       // move to last row of scroll region
-    this._raw(text);                      // write content
+    this._raw(applyArabicRendering(text));                      // write content
     this._drawBar();                      // redraw input bar + status
 
     if (cb) cb();
@@ -349,9 +350,11 @@ export class InputBar extends EventEmitter {
       const visibleBuf = this.buf.slice(viewStart, viewStart + maxInput);
       const visibleCur = Math.min(this.cur - viewStart, maxInput);
 
+      const renderedBuf = applyArabicRendering(visibleBuf);
+
       let barText = '';
       if (this.statusL) {
-        const inputWidth = getVisibleWidth(visibleBuf);
+        const inputWidth = getVisibleWidth(renderedBuf);
         const totalUsed = pfxWidth + inputWidth + statusWidth;
         const spacesNeeded = c - totalUsed - 2; // leave 2 chars at the right edge
         
@@ -359,24 +362,24 @@ export class InputBar extends EventEmitter {
           const padding = ' '.repeat(spacesNeeded);
           // statusL already contains colors and formatting, print directly
           barText = chalk.hex(theme.primary).bold(RAW_PFX) +
-                    chalk.hex(theme.text)(visibleBuf) +
+                    chalk.hex(theme.text)(renderedBuf) +
                     padding +
                     this.statusL;
         } else {
           // If input is too long, hide the status bar to prevent line wrap
           barText = chalk.hex(theme.primary).bold(RAW_PFX) +
-                    chalk.hex(theme.text)(visibleBuf);
+                    chalk.hex(theme.text)(renderedBuf);
         }
       } else {
         barText = chalk.hex(theme.primary).bold(RAW_PFX) +
-                  chalk.hex(theme.text)(visibleBuf);
+                  chalk.hex(theme.text)(renderedBuf);
       }
 
       this._raw(`\x1b[${r};1H\x1b[2K`);
       this._raw(barText);
 
       // Position cursor exactly on the edit point (calculating visible width of buffer slice)
-      const curCol = pfxWidth + getVisibleWidth(visibleBuf.slice(0, visibleCur)) + 1;
+      const curCol = pfxWidth + getVisibleWidth(applyArabicRendering(visibleBuf.slice(0, visibleCur))) + 1;
       this._raw(`\x1b[${r};${curCol}H`);
       this._raw('\x1b[?7h');     // re-enable autowrap
     }

@@ -5,6 +5,7 @@
 
 import chalk from 'chalk';
 import { getTheme, gradient, colors } from '../ui/theme.js';
+import { applyArabicRendering } from '../utils/arabic.js';
 
 interface RenderState {
   inCodeBlock: boolean;
@@ -22,10 +23,12 @@ interface RenderState {
 export class StreamRenderer {
   private state: RenderState;
   private output: NodeJS.WriteStream;
+  private activeLineRendered = false;
 
   constructor(output: NodeJS.WriteStream = process.stdout) {
     this.output = output;
     this.state = this.freshState();
+    this.activeLineRendered = false;
   }
 
   private freshState(): RenderState {
@@ -46,6 +49,11 @@ export class StreamRenderer {
   /** Reset renderer state for new response */
   reset(): void {
     this.state = this.freshState();
+    this.activeLineRendered = false;
+  }
+
+  private writeOut(text: string): void {
+    this.output.write(applyArabicRendering(text));
   }
 
   /** Process a single token from the stream */
@@ -58,46 +66,110 @@ export class StreamRenderer {
       const nlIndex = this.state.lineBuffer.indexOf('\n');
       const line = this.state.lineBuffer.slice(0, nlIndex);
       this.state.lineBuffer = this.state.lineBuffer.slice(nlIndex + 1);
+
+      // If we previously drew a streaming active line, clear it before finalizing the line
+      if (this.activeLineRendered) {
+        this.output.write('\r\x1b[K');
+        this.activeLineRendered = false;
+      }
+
       this.processLine(line);
       this.output.write('\n');
     }
-    // If there is remaining buffer without newline, render it immediately
+
+    // If there is remaining buffer without newline, render it as active streaming line
     if (this.state.lineBuffer) {
-      if (this.state.inCodeBlock) {
-        this.output.write(chalk.hex(getTheme().textDim)(this.state.lineBuffer));
-      } else if (this.state.inThinking) {
-        this.output.write(chalk.hex(getTheme().muted).dim.italic(this.state.lineBuffer));
-      } else {
-        this.output.write(this.renderInline(this.state.lineBuffer));
+      if (this.activeLineRendered) {
+        this.output.write('\r\x1b[K');
       }
-      this.state.lineBuffer = '';
+      this.renderStreamingLine(this.state.lineBuffer);
+      this.activeLineRendered = true;
     }
   }
 
   /** Flush any remaining buffer */
   flush(): void {
+    if (this.activeLineRendered) {
+      this.output.write('\r\x1b[K');
+      this.activeLineRendered = false;
+    }
+
     if (this.state.lineBuffer) {
-      if (this.state.inCodeBlock) {
-        this.output.write(chalk.hex(getTheme().textDim)(this.state.lineBuffer));
-      } else {
-        this.output.write(this.renderInline(this.state.lineBuffer));
-      }
+      this.processLine(this.state.lineBuffer);
       this.state.lineBuffer = '';
     }
 
     if (this.state.inCodeBlock) {
-      this.output.write('\n' + chalk.hex(getTheme().border)('  └' + '─'.repeat(40)) + '\n');
+      this.writeOut('\n' + chalk.hex(getTheme().border)('  └' + '─'.repeat(40)) + '\n');
       this.state.inCodeBlock = false;
     }
 
     // Close unclosed thinking block
     if (this.state.inThinking) {
       const theme = getTheme();
-      this.output.write(
+      this.writeOut(
         '\n' + chalk.hex(theme.border)('  └' + '─'.repeat(46)) + '\n'
       );
       this.state.inThinking = false;
     }
+  }
+
+  private renderStreamingLine(line: string): void {
+    const theme = getTheme();
+    let rendered = '';
+
+    // ── Thinking block ────────────────────────────────────────────────
+    if (this.state.inThinking) {
+      if (line.trim().startsWith('<think>')) {
+        rendered = applyArabicRendering(line);
+      } else {
+        rendered = chalk.hex(theme.border)('  │ ') + 
+                   applyArabicRendering(chalk.hex('#9d88f5')(line));
+      }
+      this.output.write(rendered);
+      return;
+    }
+
+    // ── Code block ────────────────────────────────────────────────────
+    if (this.state.inCodeBlock) {
+      rendered = chalk.hex(theme.border)('  │ ') + 
+                 applyArabicRendering(chalk.hex('#ABB2BF')(line));
+      this.output.write(rendered);
+      return;
+    }
+
+    // ── Blockquote ────────────────────────────────────────────────────
+    if (line.startsWith('> ')) {
+      rendered = chalk.hex(theme.border)('  ┃ ') + 
+                 applyArabicRendering(chalk.hex(theme.textDim).italic(line.slice(2)));
+      this.output.write(rendered);
+      return;
+    }
+
+    // ── Bullet points ─────────────────────────────────────────────────
+    if (/^\s*[-*+]\s/.test(line)) {
+      const indent = line.match(/^\s*/)?.[0] || '';
+      const content = line.replace(/^\s*[-*+]\s/, '');
+      rendered = indent + chalk.hex(theme.primary)('  ▸ ') + 
+                 applyArabicRendering(this.renderInline(content));
+      this.output.write(rendered);
+      return;
+    }
+
+    // ── Numbered lists ────────────────────────────────────────────────
+    if (/^\s*\d+\.\s/.test(line)) {
+      const match = line.match(/^(\s*)(\d+)\.\s(.*)$/);
+      if (match) {
+        rendered = match[1] + chalk.hex(theme.primary).bold(`  ${match[2]}.`) + ' ' + 
+                   applyArabicRendering(this.renderInline(match[3]));
+        this.output.write(rendered);
+        return;
+      }
+    }
+
+    // ── Regular text ──────────────────────────────────────────────────
+    rendered = '  ' + applyArabicRendering(this.renderInline(line));
+    this.output.write(rendered);
   }
 
   /** Get the full rendered content */
@@ -113,7 +185,7 @@ export class StreamRenderer {
       this.state.inThinking = true;
       this.state.thinkingLineCount = 0;
       // Draw a distinct "THINKING" section header
-      this.output.write(
+      this.writeOut(
         '\n' +
         chalk.hex(theme.border)('  ┌─') +
         chalk.hex('#7c6af7').bold('▸ THINKING') +
@@ -125,7 +197,7 @@ export class StreamRenderer {
     // ── Thinking block: close ─────────────────────────────────────────
     if (line.trim() === '</think>' || line.trim().endsWith('</think>')) {
       this.state.inThinking = false;
-      this.output.write(
+      this.writeOut(
         chalk.hex(theme.border)('  └─') +
         chalk.hex('#7c6af7')(` ${this.state.thinkingLineCount} lines `) +
         chalk.hex(theme.border)('─'.repeat(Math.max(0, 38 - String(this.state.thinkingLineCount).length))) + '\n'
@@ -133,7 +205,7 @@ export class StreamRenderer {
       // Show RESPONSE header when transitioning from thinking to response
       if (!this.state.responseStarted) {
         this.state.responseStarted = true;
-        this.output.write(
+        this.writeOut(
           '\n' +
           chalk.hex(theme.border)('  ┌─') +
           chalk.hex('#38bdf8').bold('✦ RESPONSE') +
@@ -148,7 +220,7 @@ export class StreamRenderer {
       this.state.thinkingLineCount++;
       // Skip empty lines to keep thinking section compact
       if (!line.trim()) return;
-      this.output.write(
+      this.writeOut(
         chalk.hex(theme.border)('  │ ') +
         chalk.hex('#9d88f5')(line)
       );
@@ -167,7 +239,7 @@ export class StreamRenderer {
         this.state.codeBlockLang = line.trim().slice(3).trim();
         const langLabel = this.state.codeBlockLang || 'code';
         const pad = Math.max(0, 34 - langLabel.length);
-        this.output.write(
+        this.writeOut(
           '\n' +
           chalk.hex(theme.border)('  ┌') +
           chalk.bgHex('#0d1117').hex(theme.accent).bold(` ${langLabel} `) +
@@ -177,14 +249,14 @@ export class StreamRenderer {
       } else {
         this.state.inCodeBlock = false;
         this.state.codeBlockLang = '';
-        this.output.write(chalk.hex(theme.border)('  └' + '─'.repeat(40)));
+        this.writeOut(chalk.hex(theme.border)('  └' + '─'.repeat(40)));
         return;
       }
     }
 
     // ── Inside code block ─────────────────────────────────────────────
     if (this.state.inCodeBlock) {
-      this.output.write(
+      this.writeOut(
         chalk.hex(theme.border)('  │ ') +
         chalk.hex('#ABB2BF')(line)
       );
@@ -193,21 +265,21 @@ export class StreamRenderer {
 
     // ── Markdown: Headers ─────────────────────────────────────────────
     if (line.startsWith('### ')) {
-      this.output.write('   ' + chalk.hex(theme.accent).bold(line.slice(4)));
+      this.writeOut('   ' + chalk.hex(theme.accent).bold(line.slice(4)));
       return;
     }
     if (line.startsWith('## ')) {
-      this.output.write('  ' + gradient(line.slice(3)));
+      this.writeOut('  ' + gradient(line.slice(3)));
       return;
     }
     if (line.startsWith('# ')) {
-      this.output.write(gradient('━'.repeat(3) + ' ' + line.slice(2) + ' ' + '━'.repeat(3)));
+      this.writeOut(gradient('━'.repeat(3) + ' ' + line.slice(2) + ' ' + '━'.repeat(3)));
       return;
     }
 
     // ── Horizontal rule ───────────────────────────────────────────────
     if (/^[-*_]{3,}$/.test(line.trim())) {
-      this.output.write(chalk.hex(theme.border)('  ' + '─'.repeat(50)));
+      this.writeOut(chalk.hex(theme.border)('  ' + '─'.repeat(50)));
       return;
     }
 
@@ -215,7 +287,7 @@ export class StreamRenderer {
     if (/^\s*[-*+]\s/.test(line)) {
       const indent = line.match(/^\s*/)?.[0] || '';
       const content = line.replace(/^\s*[-*+]\s/, '');
-      this.output.write(
+      this.writeOut(
         indent + chalk.hex(theme.primary)('  ▸ ') + this.renderInline(content)
       );
       return;
@@ -225,7 +297,7 @@ export class StreamRenderer {
     if (/^\s*\d+\.\s/.test(line)) {
       const match = line.match(/^(\s*)(\d+)\.\s(.*)$/);
       if (match) {
-        this.output.write(
+        this.writeOut(
           match[1] + chalk.hex(theme.primary).bold(`  ${match[2]}.`) + ' ' + this.renderInline(match[3])
         );
         return;
@@ -234,7 +306,7 @@ export class StreamRenderer {
 
     // ── Blockquote ────────────────────────────────────────────────────
     if (line.startsWith('> ')) {
-      this.output.write(
+      this.writeOut(
         chalk.hex(theme.border)('  ┃ ') +
         chalk.hex(theme.textDim).italic(line.slice(2))
       );
@@ -242,7 +314,7 @@ export class StreamRenderer {
     }
 
     // ── Regular text ──────────────────────────────────────────────────
-    this.output.write('  ' + this.renderInline(line));
+    this.writeOut('  ' + this.renderInline(line));
   }
 
   /** Render inline markdown (bold, italic, code, links) */
