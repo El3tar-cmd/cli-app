@@ -11,6 +11,19 @@ import { ConfigManager } from '../core/config.js';
 
 const MAX_AGENT_DEPTH = 3;
 
+const SUB_AGENT_NAMES = [
+  'عبدالرحمن', // Abdelrahman (Strongest, level 0)
+  'العطار',      // El-Attar (level 1)
+  'الخوارزمي',    // Al-Khwarizmi (level 2)
+  'ابن سينا',     // Ibn Sina (level 3)
+  'ابن الهيثم',   // Ibn al-Haytham
+  'جابر بن حيان', // Jaber Ibn Hayyan
+  'الفارابي',    // Al-Farabi
+  'البيروني',     // Al-Biruni
+  'ابن رشد',     // Ibn Rushd
+  'الإدريسي'    // Al-Idrisi
+];
+
 export function registerSubagentTools(
   registry: ToolRegistry,
   cwd: string,
@@ -35,6 +48,7 @@ export function registerSubagentTools(
         return { success: false, output: '', error: `Maximum sub-agent nesting depth (${MAX_AGENT_DEPTH}) reached. Cannot spawn deeper sub-agents.` };
       }
 
+      const agentName = SUB_AGENT_NAMES[depth % SUB_AGENT_NAMES.length];
       let sandboxManager: SandboxManager | null = null;
       try {
         const isParallel = args.parallel === true;
@@ -42,7 +56,7 @@ export function registerSubagentTools(
         const focusFiles = (args.focusFiles as string[]) || [];
 
         if (!isParallel) {
-          process.stdout.write(chalk.hex(getTheme().warning)(`\n  🤖 Spawning Sub-Agent for task...\n`));
+          process.stdout.write(chalk.hex(getTheme().warning)(`\n  🤖 Spawning Sub-Agent (${agentName}) for task...\n`));
         }
 
         let workspacePath = cwd;
@@ -81,13 +95,13 @@ export function registerSubagentTools(
         const onSubToolStart = (data: any) => {
           masterEngine.emit('tool_start', {
             ...data,
-            name: `🤖 [Sub-Agent] ${data.name}`
+            name: `🤖 [Sub-Agent: ${agentName}] ${data.name}`
           });
         };
         const onSubToolEnd = (data: any) => {
           masterEngine.emit('tool_end', {
             ...data,
-            name: `🤖 [Sub-Agent] ${data.name}`
+            name: `🤖 [Sub-Agent: ${agentName}] ${data.name}`
           });
         };
 
@@ -98,14 +112,14 @@ export function registerSubagentTools(
         let result;
         try {
           // Inject context about the delegation
-          let prompt = `You are a Sub-Agent spawned by the Master NOVA Agent.\nYour specific task: ${args.task}\n`;
+          let prompt = `You are a Sub-Agent named "${agentName}" spawned by the Master NOVA Agent.\nYour specific task: ${args.task}\n`;
           if (focusFiles.length > 0) {
             prompt += `Please focus on these files: ${focusFiles.join(', ')}\n`;
           }
           prompt += `When you are done, summarize your exact changes and results so the Master Agent can continue.`;
 
           // Execute task
-          masterEngine.emit('subagent_spawned', { task: args.task, depth, sandbox: useSandbox });
+          masterEngine.emit('subagent_spawned', { name: agentName, task: args.task, depth, sandbox: useSandbox });
           result = await subEngine.processMessage(prompt);
         } finally {
           // Clean up listeners to prevent memory leaks
@@ -166,23 +180,23 @@ export function registerSubagentTools(
         }
 
         if (!isParallel) {
-          process.stdout.write(chalk.hex(getTheme().success)(`\n  🏁 Sub-Agent completed task.\n`));
+          process.stdout.write(chalk.hex(getTheme().success)(`\n  🏁 Sub-Agent (${agentName}) completed task.\n`));
         }
 
-        masterEngine.emit('subagent_completed', { task: args.task as string, success: true, changes: numChanges });
+        masterEngine.emit('subagent_completed', { name: agentName, task: args.task as string, success: true, changes: numChanges });
 
         return {
           success: true,
-          output: `Sub-Agent Result:\n${result}\n${changesSummary}`,
+          output: `Sub-Agent (${agentName}) Result:\n${result}\n${changesSummary}`,
         };
       } catch (err: any) {
-        masterEngine.emit('subagent_completed', { task: args.task as string, success: false, changes: 0 });
+        masterEngine.emit('subagent_completed', { name: agentName, task: args.task as string, success: false, changes: 0 });
         if (sandboxManager) {
           try {
             sandboxManager.destroy();
           } catch {}
         }
-        return { success: false, output: '', error: `Sub-Agent failed: ${err.message}` };
+        return { success: false, output: '', error: `Sub-Agent (${agentName}) failed: ${err.message}` };
       }
     },
   });
@@ -214,6 +228,7 @@ export function registerSubagentTools(
         idx: number
       ): Promise<{
         agentIndex: number;
+        agentName: string;
         task: string;
         success: boolean;
         result: string;
@@ -221,6 +236,7 @@ export function registerSubagentTools(
         numChanges: number;
         error?: string;
       }> => {
+        const agentName = SUB_AGENT_NAMES[(depth + idx) % SUB_AGENT_NAMES.length];
         let sandboxManager: SandboxManager | null = null;
         try {
           const useSandbox = taskDef.sandbox !== false;
@@ -246,10 +262,10 @@ export function registerSubagentTools(
 
           const onToken = (token: string) => masterEngine.emit('token', token);
           const onToolStart = (data: any) => masterEngine.emit('tool_start', {
-            ...data, name: `🤖 [Parallel-${idx + 1}] ${data.name}`
+            ...data, name: `🤖 [Parallel Sub-Agent: ${agentName}] ${data.name}`
           });
           const onToolEnd = (data: any) => masterEngine.emit('tool_end', {
-            ...data, name: `🤖 [Parallel-${idx + 1}] ${data.name}`
+            ...data, name: `🤖 [Parallel Sub-Agent: ${agentName}] ${data.name}`
           });
 
           subEngine.on('token', onToken);
@@ -257,6 +273,7 @@ export function registerSubagentTools(
           subEngine.on('tool_end', onToolEnd);
 
           masterEngine.emit('subagent_spawned', {
+            name: agentName,
             task: taskDef.task,
             depth,
             sandbox: useSandbox,
@@ -267,7 +284,7 @@ export function registerSubagentTools(
 
           let result = '';
           try {
-            let prompt = `You are Sub-Agent #${idx + 1} of ${taskList.length} running in parallel.\n`;
+            let prompt = `You are a Sub-Agent named "${agentName}" (#${idx + 1} of ${taskList.length}) running in parallel.\n`;
             prompt += `Your specific task: ${taskDef.task}\n`;
             if (focusFiles.length > 0) prompt += `Focus on these files: ${focusFiles.join(', ')}\n`;
             prompt += `When done, summarize your exact changes and results concisely so the Master Agent can consolidate all parallel results.`;
@@ -297,12 +314,12 @@ export function registerSubagentTools(
             sandboxManager.destroy();
           }
 
-          masterEngine.emit('subagent_completed', { task: taskDef.task, success: true, changes: numChanges });
-          return { agentIndex: idx, task: taskDef.task, success: true, result, changesSummary, numChanges };
+          masterEngine.emit('subagent_completed', { name: agentName, task: taskDef.task, success: true, changes: numChanges });
+          return { agentIndex: idx, agentName, task: taskDef.task, success: true, result, changesSummary, numChanges };
         } catch (err: any) {
-          masterEngine.emit('subagent_completed', { task: taskDef.task, success: false, changes: 0 });
+          masterEngine.emit('subagent_completed', { name: agentName, task: taskDef.task, success: false, changes: 0 });
           if (sandboxManager) { try { sandboxManager.destroy(); } catch {} }
-          return { agentIndex: idx, task: taskDef.task, success: false, result: '', changesSummary: '', numChanges: 0, error: err.message };
+          return { agentIndex: idx, agentName, task: taskDef.task, success: false, result: '', changesSummary: '', numChanges: 0, error: err.message };
         }
       };
 
@@ -328,7 +345,7 @@ export function registerSubagentTools(
       const outputLines = results.map((r) => {
         const badge = r.success ? '✅' : '❌';
         const changes = r.numChanges > 0 ? `\n${r.changesSummary}` : '';
-        return `${badge} Agent-${r.agentIndex + 1}: ${r.task}\n${r.result}${changes}`;
+        return `${badge} Agent (${r.agentName}): ${r.task}\n${r.result}${changes}`;
       });
 
       return {

@@ -123,21 +123,21 @@ export class Nova {
     registerSubagentTools(this.tools, this.cwd, this.config, promptsDir, this.engine);
 
     // Listen to Sub-Agent events for CLI visibility
-    this.engine.on('subagent_spawned', (data: { task: string, depth: number, sandbox: boolean }) => {
+    this.engine.on('subagent_spawned', (data: { name: string, task: string, depth: number, sandbox: boolean }) => {
       const activeTheme = getTheme();
       const sandboxLabel = data.sandbox ? chalk.hex(activeTheme.warning)(' [SANDBOXED]') : '';
       process.stdout.write(
-        '\n' + chalk.hex(activeTheme.primary).bold(`🤖 ${ICONS.nova} Sub-Agent Spawned (Level ${data.depth})${sandboxLabel}:`) + '\n' +
+        '\n' + chalk.hex(activeTheme.primary).bold(`🤖 ${ICONS.nova} Sub-Agent Spawned (${data.name}) (Level ${data.depth})${sandboxLabel}:`) + '\n' +
         chalk.hex(activeTheme.textDim)(`   Task: "${data.task}"`) + '\n'
       );
     });
 
-    this.engine.on('subagent_completed', (data: { task: string, success: boolean, changes: number }) => {
+    this.engine.on('subagent_completed', (data: { name: string, task: string, success: boolean, changes: number }) => {
       const activeTheme = getTheme();
       const statusIcon = data.success ? chalk.hex(activeTheme.success)('✅') : chalk.hex(activeTheme.error)('❌');
       const statusText = data.success ? 'Completed' : 'Failed';
       process.stdout.write(
-        '\n' + statusIcon + ' ' + chalk.hex(activeTheme.primary).bold(`Sub-Agent ${statusText}:`) + '\n' +
+        '\n' + statusIcon + ' ' + chalk.hex(activeTheme.primary).bold(`Sub-Agent (${data.name}) ${statusText}:`) + '\n' +
         chalk.hex(activeTheme.textDim)(`   Task: "${data.task}"`) + '\n' +
         chalk.hex(activeTheme.textDim)(`   Changes: ${data.changes} files`) + '\n'
       );
