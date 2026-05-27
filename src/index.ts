@@ -12,11 +12,29 @@
  */
 
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
+import { SpanExporter, ReadableSpan } from '@opentelemetry/sdk-trace-base';
+
+// Store spans in global memory instead of spamming stdout
+class GlobalSpanExporter implements SpanExporter {
+  export(spans: ReadableSpan[], resultCallback: (result: any) => void): void {
+    if (!(globalThis as any).novaSpans) {
+      (globalThis as any).novaSpans = [];
+    }
+    (globalThis as any).novaSpans.push(...spans);
+    // Limit cache to last 50 spans
+    if ((globalThis as any).novaSpans.length > 50) {
+      (globalThis as any).novaSpans = (globalThis as any).novaSpans.slice(-50);
+    }
+    resultCallback({ code: 0 });
+  }
+  shutdown(): Promise<void> {
+    return Promise.resolve();
+  }
+}
 
 const sdk = new NodeSDK({
-  traceExporter: new ConsoleSpanExporter(),
+  traceExporter: new GlobalSpanExporter(),
   instrumentations: [new HttpInstrumentation()],
 });
 sdk.start();

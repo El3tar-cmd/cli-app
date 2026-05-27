@@ -217,6 +217,8 @@ export class Nova {
         chalk.hex(getTheme().success)(`  📊 Project map ready`) +
         chalk.hex(getTheme().muted)(` — auto-updating on file changes`) + '\n'
       );
+      // Refresh status after async project map resolves
+      this.showPrompt();
     }).catch(() => {});
 
     // Show session info
@@ -331,6 +333,47 @@ export class Nova {
     // ── Initialise the bottom input bar ─────────────────────────────
     this.inputBar = new InputBar();
     this.inputBar.start();
+
+    // Wire InputBar to router so /clear can suspend/resume properly
+    this.router.setInputBar(this.inputBar);
+
+    // Handle tab events for autocomplete and debug spans
+    this.inputBar.on('tab', (buf: string) => {
+      // If buffer is empty, show the latest debug spans
+      if (!buf) {
+        const spans = (globalThis as any).novaSpans || [];
+        if (spans.length === 0) {
+          process.stdout.write('\n' + chalk.hex(getTheme().muted)('  No debug spans recorded yet.') + '\n');
+          this.showPrompt();
+          return;
+        }
+        process.stdout.write('\n' + chalk.hex(getTheme().accent).bold('  🔍 Latest Telemetry Spans:') + '\n');
+        const lastSpans = spans.slice(-3); // show last 3 spans
+        for (const span of lastSpans) {
+          process.stdout.write(chalk.hex(getTheme().muted)(JSON.stringify({
+            name: span.name,
+            duration: `${(span.duration[0] * 1000 + span.duration[1] / 1000000).toFixed(2)}ms`,
+            attributes: span.attributes,
+            status: span.status,
+          }, null, 2)) + '\n');
+        }
+        this.showPrompt();
+        return;
+      }
+
+      // Command autocomplete
+      const [hits, line] = this.completer(buf);
+      if (hits && hits.length > 0) {
+        if (hits.length === 1) {
+          this.inputBar.setBuffer(hits[0]);
+        } else {
+          // Print multiple matches
+          process.stdout.write('\n' + chalk.hex(getTheme().muted)('  ' + hits.join('  ')) + '\n');
+          this.showPrompt();
+        }
+      }
+    });
+
     this.showPrompt();   // sets initial status
 
     // ── Ctrl+C / abort ───────────────────────────────────────────────
@@ -408,6 +451,14 @@ export class Nova {
 
   /** Process a single input (chat message or command) */
   private async processInput(input: string): Promise<void> {
+      const theme = getTheme();
+      if (input !== '/') {
+        const r = process.stdout.rows || 24;
+        // Move cursor to the last row of the scroll region AND print the input in a single atomic write.
+        // This prevents _interceptWrite's _drawBar() from prematurely forcing the cursor back to the bottom row between writes.
+        process.stdout.write(`\x1b[${r - 1};1H${chalk.hex(theme.secondary).bold('  ' + ICONS.user + '  ')}${chalk.hex(theme.text)(input)}\n\n`);
+      }
+
       // Command picker: user typed just "/"
       if (input === '/') {
         this.inputBar.suspend();
@@ -469,7 +520,6 @@ export class Nova {
 
       // Process with AI — InputBar shows spinner in fixed bottom row
       this.processing = true;
-      const theme = getTheme();
 
       // InputBar takes over: shows spinner, absorbs keystrokes
       this.inputBar.startProcessing();

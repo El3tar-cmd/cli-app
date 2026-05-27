@@ -16,6 +16,47 @@ import { getTheme } from './theme.js';
 const SPIN  = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
 const MAX_H = 500; // history entries
 
+// Precise Unicode character width helpers
+function isWide(code: number): boolean {
+  if (Number.isNaN(code)) return false;
+  return (
+    code >= 0x1100 &&
+    (code <= 0x115F || // Hangul Jamo
+     code === 0x2329 || code === 0x232A ||
+     // CJK Radicals Supplement .. Enclosed CJK Letters and Months
+     (code >= 0x2E80 && code <= 0xA4CF && code !== 0x303F) ||
+     // Hangul Syllables
+     (code >= 0xAC00 && code <= 0xD7A3) ||
+     // CJK Compatibility Ideographs
+     (code >= 0xF900 && code <= 0xFAFF) ||
+     // Vertical forms
+     (code >= 0xFE10 && code <= 0xFE19) ||
+     // CJK Compatibility Forms .. Small Form Variants
+     (code >= 0xFE30 && code <= 0xFE6F) ||
+     // Fullwidth Forms
+     (code >= 0xFF01 && code <= 0xFF60) ||
+     code >= 0xFFE0 && code <= 0xFFE6)
+  );
+}
+
+export function getVisibleWidth(str: string): number {
+  const clean = str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  let width = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const code = clean.charCodeAt(i);
+    // Check for surrogate pairs (emojis)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      width += 2;
+      i++; // skip surrogate pair trail
+    } else if (isWide(code)) {
+      width += 2;
+    } else {
+      width += 1;
+    }
+  }
+  return width;
+}
+
 export class InputBar extends EventEmitter {
   // ── State ──────────────────────────────────────────────────────────
   private buf     = '';           // current edit buffer
@@ -30,6 +71,7 @@ export class InputBar extends EventEmitter {
   private spinTimer: ReturnType<typeof setInterval> | null = null;
   private confPrompt = '';
   private confTip    = '';
+  private lastRows   = 0;
 
   private lineResolve:    ((v: string)  => void) | null = null;
   private confirmResolve: ((v: boolean) => void) | null = null;
@@ -44,11 +86,12 @@ export class InputBar extends EventEmitter {
     if (this.active) return;
     this.active = true;
 
+    // Intercept ALL stdout writes (must be done before calling _setupScrollRegion)
+    this.originalWrite = (process.stdout.write as any).bind(process.stdout);
+
     this.rows; // force first read
     this._setupScrollRegion();
 
-    // Intercept ALL stdout writes
-    this.originalWrite = (process.stdout.write as any).bind(process.stdout);
     const self = this;
     (process.stdout as any).write = function (
       chunk: any, enc?: any, cb?: any
@@ -63,8 +106,18 @@ export class InputBar extends EventEmitter {
     process.stdin.resume();
     process.stdin.on('data', (d: Buffer) => this._onKey(d));
 
+    this.lastRows = this.rows;
+
     // Resize
     process.stdout.on('resize', () => {
+      if (this.lastRows > 0 && this.rows > this.lastRows) {
+        // Reset scroll region to full screen temporarily to clear old bottom rows
+        this._raw('\x1b[r');
+        for (let i = this.lastRows; i < this.rows; i++) {
+          this._raw(`\x1b[${i};1H\x1b[2K`);
+        }
+      }
+      this.lastRows = this.rows;
       this._setupScrollRegion();
       this._drawBar();
     });
@@ -120,6 +173,13 @@ export class InputBar extends EventEmitter {
   /** Update the status line (model name, mode, ctx%) — redraws bar */
   setStatus(text: string): void {
     this.statusL = text;
+    this._drawBar();
+  }
+
+  /** Set the edit buffer text externally (e.g. for autocompletion) */
+  setBuffer(text: string): void {
+    this.buf = text;
+    this.cur = text.length;
     this._drawBar();
   }
 
@@ -204,16 +264,38 @@ export class InputBar extends EventEmitter {
 
     const r = this.rows;
 
-    // 1. Save cursor (wherever it is in the scroll region)
-    this._raw('\x1b[s');
-    // 2. Wipe bottom row so it can't be corrupted
-    this._raw(`\x1b[${r};1H\x1b[2K`);
-    // 3. Restore cursor to scroll region
-    this._raw('\x1b[u');
-    // 4. Write the actual content (stays within scroll region)
-    this._raw(text);
-    // 5. Repaint bottom bar (uses save/restore internally in processing mode)
-    this._drawBar();
+    // ── Processing mode: cursor lives in the scroll region ──────────
+    // Save cursor, protect bottom row, restore, write text, then
+    // redraw the spinner bar so cursor position stays consistent
+    // with the spinner timer's own save/restore cycle.
+    if (this.mode === 'processing') {
+      this._raw('\x1b[s');                // save cursor position
+      this._raw(`\x1b[${r};1H\x1b[2K`);  // wipe bottom row (prevent scroll corruption)
+      this._raw('\x1b[u');                // restore cursor into scroll region
+      this._raw(text);                    // write content (cursor advances)
+      this._drawBar();                    // redraw spinner (saves NEW cursor pos)
+      if (cb) cb();
+      return true;
+    }
+
+    // ── Confirm mode ────────────────────────────────────────────────
+    if (this.mode === 'confirm') {
+      this._raw('\x1b[s');
+      this._raw(`\x1b[${r};1H\x1b[2K`);
+      this._raw('\x1b[u');
+      this._raw(text);
+      this._drawBar();
+      if (cb) cb();
+      return true;
+    }
+
+    // ── Idle mode: cursor is on the bottom row (input bar) ──────────
+    // Move cursor into the scroll region, write the output, then
+    // redraw the input bar to restore the prompt and cursor.
+    this._raw(`\x1b[${r};1H\x1b[2K`);   // clear bottom row first
+    this._raw(`\x1b[${r - 1};1H`);       // move to last row of scroll region
+    this._raw(text);                      // write content
+    this._drawBar();                      // redraw input bar + status
 
     if (cb) cb();
     return true;
@@ -226,12 +308,16 @@ export class InputBar extends EventEmitter {
     const r = this.rows;
     const c = this.cols;
 
+    // Disable autowrap so bar content NEVER wraps past the terminal edge.
+    this._raw('\x1b[?7l');
+
     // ── In PROCESSING mode: save→draw spinner→restore ─────────────
     if (this.mode === 'processing') {
       this._raw('\x1b[s');
       this._raw(`\x1b[${r};1H\x1b[2K`);
       this._raw(this._buildProcessingBar(theme, c));
       this._raw('\x1b[u');       // restore cursor to scroll region
+      this._raw('\x1b[?7h');     // re-enable autowrap
       return;
     }
 
@@ -241,37 +327,58 @@ export class InputBar extends EventEmitter {
       this._raw(`\x1b[${r};1H\x1b[2K`);
       this._raw(this._buildConfirmBar(theme, c));
       this._raw('\x1b[u');
+      this._raw('\x1b[?7h');     // re-enable autowrap
       return;
     }
 
     // ── IDLE mode: draw input bar, place cursor ───────────────────
     {
-      const RAW_PFX = '  ◈  '; // 5 visible chars: "  ◈  "
-      const PFX_LEN = 5;
-      const maxInput = Math.max(c - PFX_LEN - 2, 10);
+      const RAW_PFX = '  ◈  ';
+      const pfxWidth = getVisibleWidth(RAW_PFX);
+      const statusWidth = this.statusL ? getVisibleWidth(this.statusL) : 0;
+      
+      // Reserve space for prefix, status, and some breathing room (e.g. 4 chars)
+      const reserved = pfxWidth + (statusWidth ? statusWidth + 4 : 0);
+      const maxInput = Math.max(c - reserved, 15);
 
       // Choose display slice (keep cursor visible)
       let viewStart = 0;
       if (this.cur > maxInput) {
         viewStart = this.cur - maxInput;
       }
-      const visibleBuf  = this.buf.slice(viewStart, viewStart + maxInput);
-      const visibleCur  = Math.min(this.cur - viewStart, maxInput);
+      const visibleBuf = this.buf.slice(viewStart, viewStart + maxInput);
+      const visibleCur = Math.min(this.cur - viewStart, maxInput);
 
-      const statusPart = this.statusL
-        ? chalk.hex(theme.muted)(` ${this.statusL} `)
-        : '';
+      let barText = '';
+      if (this.statusL) {
+        const inputWidth = getVisibleWidth(visibleBuf);
+        const totalUsed = pfxWidth + inputWidth + statusWidth;
+        const spacesNeeded = c - totalUsed - 2; // leave 2 chars at the right edge
+        
+        if (spacesNeeded > 0) {
+          const padding = ' '.repeat(spacesNeeded);
+          // statusL already contains colors and formatting, print directly
+          barText = chalk.hex(theme.primary).bold(RAW_PFX) +
+                    chalk.hex(theme.text)(visibleBuf) +
+                    padding +
+                    this.statusL;
+        } else {
+          // If input is too long, hide the status bar to prevent line wrap
+          barText = chalk.hex(theme.primary).bold(RAW_PFX) +
+                    chalk.hex(theme.text)(visibleBuf);
+        }
+      } else {
+        barText = chalk.hex(theme.primary).bold(RAW_PFX) +
+                  chalk.hex(theme.text)(visibleBuf);
+      }
 
       this._raw(`\x1b[${r};1H\x1b[2K`);
-      this._raw(
-        chalk.hex(theme.primary).bold(RAW_PFX) +
-        chalk.hex(theme.text)(visibleBuf) +
-        (statusPart ? chalk.hex(theme.border)('│') + statusPart : '')
-      );
-      // Position cursor exactly on the edit point
-      const curCol = PFX_LEN + visibleCur + 1;
+      this._raw(barText);
+
+      // Position cursor exactly on the edit point (calculating visible width of buffer slice)
+      const curCol = pfxWidth + getVisibleWidth(visibleBuf.slice(0, visibleCur)) + 1;
       this._raw(`\x1b[${r};${curCol}H`);
-      // No save/restore needed: cursor stays in input row for key events
+      this._raw('\x1b[?7h');     // re-enable autowrap
     }
   }
 

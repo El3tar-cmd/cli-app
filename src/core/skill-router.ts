@@ -184,6 +184,17 @@ export class SkillRouter {
     const confidence: Record<string, number> = {};
     const normalizedQuery = query.toLowerCase();
 
+    const isAskingAboutSkills = /\b(skills?|capabilities|what can you do|help|مهارات|قدرات|مساعده|مساعدة)\b/i.test(normalizedQuery);
+    if (isAskingAboutSkills) {
+      const allSkills = SkillRouter.listSkills();
+      for (const skill of allSkills) {
+        confidence[skill] = 1.0;
+        reasons[skill] = 'Explicit query about capabilities/skills';
+      }
+      logger.info(`Skill Router (Explicit Help/Skills Query): Activated all ${allSkills.length} skills.`);
+      return { activeSkills: allSkills, reasons, confidence };
+    }
+
     for (const rule of SKILL_RULES) {
       let score = 0;
       let reasonMsg = '';
@@ -286,4 +297,18 @@ SKILL_RULES.push({
   ],
   fileExtensions: ['.ipynb', '.parquet', '.csv'],
   filePatterns: ['data', 'ml', 'notebook', 'train', 'model', 'analytics', 'experiment']
+});
+
+// Add cloud rule
+SKILL_RULES.push({
+  name: 'cloud',
+  weight: 1.0,
+  keywords: [
+    'cloud', 'aws', 'gcp', 'azure', 'terraform', 'pulumi', 'kubernetes', 'k8s',
+    'docker', 'container', 'lambda', 'serverless', 'vpc', 'iam', 's3', 'ecs',
+    'eks', 'gke', 'cloudwatch', 'secrets manager', 'infrastructure', 'iac',
+    'cloudflare', 'vercel', 'edge function', 'deployment', 'devops', 'power tuning'
+  ],
+  fileExtensions: ['.tf', '.yaml', '.yml', '.dockerfile'],
+  filePatterns: ['terraform', 'kubernetes', 'helm', 'dockerfile', 'cloud', 'aws', 'gcp', 'deployment', 'infra']
 });

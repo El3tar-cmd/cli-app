@@ -28,12 +28,18 @@ export class CommandRouter {
   private store: ConversationStore;
   private config: ConfigManager;
   private cwd: string;
+  private inputBar: any = null; // set by Nova after InputBar is created
 
   constructor(engine: Engine, store: ConversationStore, config: ConfigManager, cwd: string) {
     this.engine = engine;
     this.store = store;
     this.config = config;
     this.cwd = cwd;
+  }
+
+  /** Set InputBar reference so commands can use it */
+  setInputBar(bar: any): void {
+    this.inputBar = bar;
   }
 
   /** Check if input is a command */
@@ -179,8 +185,16 @@ export class CommandRouter {
 
   private cmdClear(): CommandResult {
     this.engine.getContext().clear();
-    console.clear();
-    process.stdout.write(chalk.hex(getTheme().success)(`  ${ICONS.success} Conversation cleared\n`));
+    // Suspend InputBar so the clear goes to raw terminal (not intercepted)
+    if (this.inputBar) {
+      this.inputBar.suspend();
+      process.stdout.write('\x1b[2J\x1b[3J\x1b[H'); // full clear including scrollback
+      process.stdout.write(chalk.hex(getTheme().success)(`  ${ICONS.success} Conversation cleared\n`));
+      this.inputBar.resume();
+    } else {
+      process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+      process.stdout.write(chalk.hex(getTheme().success)(`  ${ICONS.success} Conversation cleared\n`));
+    }
     return { handled: true };
   }
 

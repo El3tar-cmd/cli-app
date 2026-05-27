@@ -420,4 +420,50 @@ export const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'workspace_problems',
+      description: 'Scan the workspace for static analysis, typescript, linting, and compilation errors/warnings. Auto-detects project type.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Target path to scan (optional)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'browser_inspect_ui',
+      description: 'Inspect the current browser page layout for non-vision models. Returns a detailed textual wireframe: interactive elements with coordinates, overlapping elements, broken images, off-screen content, truncated text, and console errors. Use this instead of screenshots when the AI model cannot see images.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'Root selector to inspect (optional, defaults to body)' },
+          maxElements: { type: 'number', description: 'Maximum number of elements to return (optional, defaults to 100)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delegate_parallel_tasks',
+      description: 'Spawn multiple independent Sub-Agents simultaneously and run them in parallel. Significantly faster than sequential delegation for unrelated tasks. Each agent gets its own sandbox and clean context. All results are collected and returned after all agents complete.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tasks: { 
+            type: 'array', 
+            description: 'Array of task objects: { task: string, focusFiles?: string[], sandbox?: boolean }' 
+          },
+        },
+        required: ['tasks'],
+      },
+    },
+  },
 ];
